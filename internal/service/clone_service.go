@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+	"time"
 
+	"github.com/google/uuid"
+
+	"clone-llm/internal/domain"
 	"clone-llm/internal/llm"
 	"clone-llm/internal/repository"
 )
@@ -20,12 +24,24 @@ func NewCloneService(llmClient llm.LLMClient, messageRepo repository.MessageRepo
 	}
 }
 
-func (s *CloneService) ClonePrompt(ctx context.Context, prompt string) (string, error) {
+func (s *CloneService) ClonePrompt(ctx context.Context, userID, sessionID, prompt string) (string, error) {
 	response, err := s.llmClient.Generate(ctx, prompt)
 	if err != nil {
 		return "", err
 	}
-	// TODO: persistir el intercambio en messageRepo.
-	_ = response
+
+	cloneMessage := domain.Message{
+		ID:        uuid.NewString(),
+		UserID:    userID,
+		SessionID: sessionID,
+		Content:   response,
+		Role:      "clone",
+		CreatedAt: time.Now().UTC(),
+	}
+
+	if err := s.messageRepo.Create(ctx, cloneMessage); err != nil {
+		return "", err
+	}
+
 	return response, nil
 }
