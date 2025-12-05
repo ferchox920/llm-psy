@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS clone_profiles;
+DROP TABLE IF EXISTS users;
