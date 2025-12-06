@@ -51,8 +51,10 @@ func (s *AnalysisService) AnalyzeAndPersist(ctx context.Context, userID, text st
 		return fmt.Errorf("llm generate: %w", err)
 	}
 
+	cleanedResp := cleanLLMJSONResponse(rawResp)
+
 	var parsed llmTraitsResponse
-	if err := json.Unmarshal([]byte(rawResp), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(cleanedResp), &parsed); err != nil {
 		return fmt.Errorf("parse llm response: %w", err)
 	}
 
@@ -86,4 +88,19 @@ type llmTraitItem struct {
 	Trait      string   `json:"trait"`
 	Value      int      `json:"value"`
 	Confidence *float64 `json:"confidence,omitempty"`
+}
+
+func cleanLLMJSONResponse(resp string) string {
+	text := strings.TrimSpace(resp)
+	if strings.HasPrefix(text, "```") {
+		text = strings.TrimPrefix(text, "```json")
+		text = strings.TrimPrefix(text, "```JSON")
+		text = strings.TrimPrefix(text, "```")
+		text = strings.TrimSpace(text)
+		if idx := strings.LastIndex(text, "```"); idx >= 0 {
+			text = text[:idx]
+			text = strings.TrimSpace(text)
+		}
+	}
+	return text
 }
