@@ -125,10 +125,6 @@ func indexAfter(text, substr string, start int) int {
 	return start + pos + len(substr)
 }
 
-func contains(text, substr string) bool {
-	return strings.Contains(text, substr)
-}
-
 func itoa(i int) string {
 	return fmt.Sprintf("%d", i)
 }
