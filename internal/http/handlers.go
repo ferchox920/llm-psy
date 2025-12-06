@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -11,16 +12,19 @@ import (
 	"clone-llm/internal/domain"
 	"clone-llm/internal/llm"
 	"clone-llm/internal/repository"
+	"clone-llm/internal/service"
 )
 
 // Handlers mantiene dependencias para los endpoints HTTP.
 type Handlers struct {
-	logger    *zap.Logger
-	users     repository.UserRepository
-	profiles  repository.ProfileRepository
-	sessions  repository.SessionRepository
-	messages  repository.MessageRepository
-	llmClient llm.LLMClient
+	logger       *zap.Logger
+	users        repository.UserRepository
+	profiles     repository.ProfileRepository
+	sessions     repository.SessionRepository
+	messages     repository.MessageRepository
+	traits       repository.TraitRepository
+	llmClient    llm.LLMClient
+	analysisServ *service.AnalysisService
 }
 
 // NewHandlers crea una instancia de Handlers con las dependencias necesarias.
@@ -30,15 +34,19 @@ func NewHandlers(
 	profiles repository.ProfileRepository,
 	sessions repository.SessionRepository,
 	messages repository.MessageRepository,
+	traits repository.TraitRepository,
 	llmClient llm.LLMClient,
+	analysisServ *service.AnalysisService,
 ) *Handlers {
 	return &Handlers{
-		logger:    logger,
-		users:     users,
-		profiles:  profiles,
-		sessions:  sessions,
-		messages:  messages,
-		llmClient: llmClient,
+		logger:       logger,
+		users:        users,
+		profiles:     profiles,
+		sessions:     sessions,
+		messages:     messages,
+		traits:       traits,
+		llmClient:    llmClient,
+		analysisServ: analysisServ,
 	}
 }
 
@@ -156,6 +164,16 @@ func (h *Handlers) PostMessage(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not post message"})
 		return
 	}
+
+	// Lanzamos el análisis de manera asíncrona para no bloquear al usuario.
+	go func(userID, content string) {
+		h.logger.Info("analysis started", zap.String("user_id", userID))
+		if err := h.analysisServ.AnalyzeAndPersist(context.Background(), userID, content); err != nil {
+			h.logger.Warn("analysis failed", zap.Error(err), zap.String("user_id", userID))
+			return
+		}
+		h.logger.Info("analysis finished", zap.String("user_id", userID))
+	}(req.UserID, req.Content)
 
 	c.JSON(http.StatusCreated, gin.H{"message": msg})
 }

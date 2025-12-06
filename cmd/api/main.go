@@ -11,6 +11,7 @@ import (
 	apihttp "clone-llm/internal/http"
 	"clone-llm/internal/llm"
 	"clone-llm/internal/repository"
+	"clone-llm/internal/service"
 
 	"github.com/joho/godotenv"
 	"go.uber.org/zap"
@@ -41,9 +42,11 @@ func main() {
 	profileRepo := repository.NewPgProfileRepository(pool)
 	sessionRepo := repository.NewPgSessionRepository(pool)
 	messageRepo := repository.NewPgMessageRepository(pool)
+	traitRepo := repository.NewPgTraitRepository(pool)
 	llmClient := llm.NewHTTPClient(cfg.LLMBaseURL, cfg.LLMAPIKey, nil)
+	analysisSvc := service.NewAnalysisService(llmClient, traitRepo, profileRepo, logger)
 
-	handlers := apihttp.NewHandlers(logger, userRepo, profileRepo, sessionRepo, messageRepo, llmClient)
+	handlers := apihttp.NewHandlers(logger, userRepo, profileRepo, sessionRepo, messageRepo, traitRepo, llmClient, analysisSvc)
 	router := apihttp.NewRouter(logger, handlers)
 
 	server := &http.Server{
