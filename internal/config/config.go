@@ -8,6 +8,7 @@ type Config struct {
 	DatabaseURL string `env:"DATABASE_URL,required"`
 	LLMAPIKey   string `env:"LLM_API_KEY,required"`
 	LLMBaseURL  string `env:"LLM_BASE_URL" envDefault:"https://api.openai.com/v1"`
+	LLMModel    string `env:"LLM_MODEL" envDefault:"gpt-5.1"`
 }
 
 // LoadConfig carga la configuración desde variables de entorno.
