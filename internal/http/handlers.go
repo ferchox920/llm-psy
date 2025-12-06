@@ -2,11 +2,13 @@ package http
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 
 	"clone-llm/internal/domain"
@@ -176,4 +178,36 @@ func (h *Handlers) PostMessage(c *gin.Context) {
 	}(req.UserID, req.Content)
 
 	c.JSON(http.StatusCreated, gin.H{"message": msg})
+}
+
+// GetCloneProfile maneja GET /clone/profile y devuelve el perfil psicológico del clon.
+func (h *Handlers) GetCloneProfile(c *gin.Context) {
+	userID := c.Query("user_id")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id is required"})
+		return
+	}
+
+	profile, err := h.profiles.GetByUserID(c.Request.Context(), userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "profile not found"})
+			return
+		}
+		h.logger.Error("get profile failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not fetch profile"})
+		return
+	}
+
+	traits, err := h.traits.FindByProfileID(c.Request.Context(), profile.ID)
+	if err != nil {
+		h.logger.Error("get traits failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not fetch traits"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"profile": profile,
+		"traits":  traits,
+	})
 }

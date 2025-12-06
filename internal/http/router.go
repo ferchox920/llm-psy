@@ -17,6 +17,7 @@ func NewRouter(logger *zap.Logger, handlers *Handlers) *gin.Engine {
 	// Rutas Sprint 1.
 	r.POST("/users", handlers.CreateUser)
 	r.POST("/clone/init", handlers.InitClone)
+	r.GET("/clone/profile", handlers.GetCloneProfile)
 	r.POST("/session", handlers.CreateSession)
 	r.POST("/message", handlers.PostMessage)
 
