@@ -10,7 +10,7 @@ A diferencia de un chatbot estándar, este sistema construye un **Modelo de Iden
 | :--- | :--- | :--- | :--- |
 | **01** | **Core Architecture** | ✅ Completado | Arquitectura limpia, persistencia PostgreSQL, Auth básica. |
 | **02** | **Profile Engine** | ✅ Completado | Inferencia psicológica asíncrona, almacenamiento de rasgos (Big Five). |
-| **03** | **Clone Voice** | 🚧 Pendiente | Generación de respuesta (RAG) condicionada por personalidad. |
+| **03** | **Clone Voice** | ✅ Completado (MVP) | Generación de respuesta (RAG) con memoria a corto plazo e inyección de personalidad. |
 
 ## 🛠️ Stack Tecnológico
 
@@ -38,7 +38,7 @@ El proyecto sigue una estructura estándar de Go para servicios escalables:
 ### Gestión de Usuarios & Clones
 * `POST /users`: Crear un nuevo usuario.
 * `POST /clone/init`: Inicializar el perfil de clon para un usuario.
-* `GET /clone/profile?user_id={id}`: **[Nuevo]** Obtener la radiografía psicológica del clon (Perfil + Rasgos).
+* `GET /clone/profile?user_id={id}`: Obtener la radiografía psicológica del clon (Perfil + Rasgos).
 
 ### Chat & Sesión
 * `POST /session`: Crear una sesión de chat efímera.
