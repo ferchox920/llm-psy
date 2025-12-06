@@ -89,7 +89,7 @@ func main() {
 	messageRepo := repository.NewPgMessageRepository(pool)
 	traitRepo := repository.NewPgTraitRepository(pool)
 
-	llmClient := llm.NewHTTPClient(cfg.LLMBaseURL, cfg.LLMAPIKey, nil)
+	llmClient := llm.NewHTTPClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, nil)
 	contextSvc := service.NewBasicContextService(messageRepo)
 	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc)
 

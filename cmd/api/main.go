@@ -43,7 +43,7 @@ func main() {
 	sessionRepo := repository.NewPgSessionRepository(pool)
 	messageRepo := repository.NewPgMessageRepository(pool)
 	traitRepo := repository.NewPgTraitRepository(pool)
-	llmClient := llm.NewHTTPClient(cfg.LLMBaseURL, cfg.LLMAPIKey, nil)
+	llmClient := llm.NewHTTPClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, logger)
 	analysisSvc := service.NewAnalysisService(llmClient, traitRepo, profileRepo, logger)
 	contextSvc := service.NewBasicContextService(messageRepo)
 	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc)
