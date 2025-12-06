@@ -45,8 +45,10 @@ func main() {
 	traitRepo := repository.NewPgTraitRepository(pool)
 	llmClient := llm.NewHTTPClient(cfg.LLMBaseURL, cfg.LLMAPIKey, nil)
 	analysisSvc := service.NewAnalysisService(llmClient, traitRepo, profileRepo, logger)
+	contextSvc := service.NewBasicContextService(messageRepo)
+	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc)
 
-	handlers := apihttp.NewHandlers(logger, userRepo, profileRepo, sessionRepo, messageRepo, traitRepo, llmClient, analysisSvc)
+	handlers := apihttp.NewHandlers(logger, userRepo, profileRepo, sessionRepo, messageRepo, traitRepo, llmClient, analysisSvc, cloneSvc)
 	router := apihttp.NewRouter(logger, handlers)
 
 	server := &http.Server{

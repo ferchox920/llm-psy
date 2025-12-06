@@ -27,6 +27,7 @@ type Handlers struct {
 	traits       repository.TraitRepository
 	llmClient    llm.LLMClient
 	analysisServ *service.AnalysisService
+	cloneServ    *service.CloneService
 }
 
 // NewHandlers crea una instancia de Handlers con las dependencias necesarias.
@@ -39,6 +40,7 @@ func NewHandlers(
 	traits repository.TraitRepository,
 	llmClient llm.LLMClient,
 	analysisServ *service.AnalysisService,
+	cloneServ *service.CloneService,
 ) *Handlers {
 	return &Handlers{
 		logger:       logger,
@@ -49,6 +51,7 @@ func NewHandlers(
 		traits:       traits,
 		llmClient:    llmClient,
 		analysisServ: analysisServ,
+		cloneServ:    cloneServ,
 	}
 }
 
@@ -177,7 +180,20 @@ func (h *Handlers) PostMessage(c *gin.Context) {
 		h.logger.Info("analysis finished", zap.String("user_id", userID))
 	}(req.UserID, req.Content)
 
-	c.JSON(http.StatusCreated, gin.H{"message": msg})
+	cloneMsg, err := h.cloneServ.Chat(c.Request.Context(), req.UserID, req.SessionID, req.Content)
+	if err != nil {
+		h.logger.Error("clone response failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":        "could not generate clone response",
+			"user_message": msg,
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"user_message":  msg,
+		"clone_message": cloneMsg,
+	})
 }
 
 // GetCloneProfile maneja GET /clone/profile y devuelve el perfil psicológico del clon.
