@@ -84,6 +84,45 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	return "[MEMORIA NARRATIVA]\n" + strings.Join(sections, "\n"), nil
 }
 
+// CreateRelation crea un personaje/vinculo asociado al perfil.
+func (s *NarrativeService) CreateRelation(ctx context.Context, profileID uuid.UUID, name, relation, bondStatus string, level int) error {
+	now := time.Now().UTC()
+	char := domain.Character{
+		ID:             uuid.New(),
+		CloneProfileID: profileID,
+		Name:           strings.TrimSpace(name),
+		Relation:       strings.TrimSpace(relation),
+		BondStatus:     strings.TrimSpace(bondStatus),
+		BondLevel:      level,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	return s.characterRepo.Create(ctx, char)
+}
+
+// InjectMemory genera el embedding y guarda una memoria narrativa.
+func (s *NarrativeService) InjectMemory(ctx context.Context, profileID uuid.UUID, content string, importance int) error {
+	embed, err := s.llmClient.CreateEmbedding(ctx, content)
+	if err != nil {
+		return fmt.Errorf("create embedding: %w", err)
+	}
+
+	now := time.Now().UTC()
+	mem := domain.NarrativeMemory{
+		ID:                 uuid.New(),
+		CloneProfileID:     profileID,
+		Content:            strings.TrimSpace(content),
+		Embedding:          pgvector.NewVector(embed),
+		Importance:         importance,
+		HappenedAt:         now,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+		RelatedCharacterID: nil,
+	}
+
+	return s.memoryRepo.Create(ctx, mem)
+}
+
 func detectActiveCharacters(chars []domain.Character, userMessage string) []domain.Character {
 	var active []domain.Character
 	msg := strings.ToLower(userMessage)

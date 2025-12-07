@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -24,47 +23,6 @@ import (
 	"clone-llm/internal/repository"
 	"clone-llm/internal/service"
 )
-
-// Question define un item del cuestionario IPIP-20 adaptado.
-type Question struct {
-	ID        int
-	Text      string
-	Category  string
-	Trait     string
-	IsInverse bool
-}
-
-var questions = []Question{
-	// EXTROVERSION
-	{Text: "Soy el alma de la fiesta.", Trait: "extraversion", IsInverse: false},
-	{Text: "No hablo mucho.", Trait: "extraversion", IsInverse: true},
-	{Text: "Hablo con mucha gente distinta en las reuniones.", Trait: "extraversion", IsInverse: false},
-	{Text: "Me mantengo en segundo plano.", Trait: "extraversion", IsInverse: true},
-
-	// AMABILIDAD (AGREEABLENESS)
-	{Text: "Simpatizo con los sentimientos de los demas.", Trait: "agreeableness", IsInverse: false},
-	{Text: "No me interesan los problemas de otros.", Trait: "agreeableness", IsInverse: true},
-	{Text: "Tengo un corazon blando.", Trait: "agreeableness", IsInverse: false},
-	{Text: "Insulto a la gente.", Trait: "agreeableness", IsInverse: true},
-
-	// RESPONSABILIDAD (CONSCIENTIOUSNESS)
-	{Text: "Hago mis tareas de inmediato.", Trait: "conscientiousness", IsInverse: false},
-	{Text: "Olvido poner las cosas en su sitio.", Trait: "conscientiousness", IsInverse: true},
-	{Text: "Me gusta el orden.", Trait: "conscientiousness", IsInverse: false},
-	{Text: "Hago desastres.", Trait: "conscientiousness", IsInverse: true},
-
-	// ESTABILIDAD EMOCIONAL (NEUROTICISMO)
-	{Text: "Tengo cambios de humor frecuentes.", Trait: "neuroticism", IsInverse: false},
-	{Text: "Estoy relajado la mayor parte del tiempo.", Trait: "neuroticism", IsInverse: true},
-	{Text: "Me altero facilmente.", Trait: "neuroticism", IsInverse: false},
-	{Text: "Rara vez me siento triste.", Trait: "neuroticism", IsInverse: true},
-
-	// APERTURA (OPENNESS)
-	{Text: "Tengo una imaginacion vivida.", Trait: "openness", IsInverse: false},
-	{Text: "No me interesan las ideas abstractas.", Trait: "openness", IsInverse: true},
-	{Text: "Tengo dificultad para entender ideas abstractas.", Trait: "openness", IsInverse: true},
-	{Text: "Estoy lleno de ideas.", Trait: "openness", IsInverse: false},
-}
 
 func main() {
 	ctx := context.Background()
@@ -96,16 +54,108 @@ func main() {
 	narrativeSvc := service.NewNarrativeService(characterRepo, memoryRepo, llmClient)
 	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc, narrativeSvc)
 
-	user, isNew, err := ensureUser(ctx, pool, userRepo, "cli_test@example.com")
+	user, err := ensureUser(ctx, pool, userRepo, "cli_test@example.com")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	profile, err := ensureProfile(ctx, profileRepo, user.ID)
-	if err != nil {
-		log.Fatal(err)
-	}
+	for {
+		fmt.Println("===== Director Mode =====")
+		profiles, err := listProfiles(ctx, pool, user.ID)
+		if err != nil {
+			log.Fatalf("listar perfiles: %v", err)
+		}
+		if len(profiles) == 0 {
+			fmt.Println("No hay perfiles. Crea uno nuevo.")
+			newProfile, err := createProfileFlow(ctx, reader, profileRepo, user.ID)
+			if err != nil {
+				log.Fatalf("crear perfil: %v", err)
+			}
+			profiles = append(profiles, *newProfile)
+		}
 
+		fmt.Println("Perfiles disponibles:")
+		for i, p := range profiles {
+			fmt.Printf("[%d] %s (ID: %s)\n", i+1, p.Name, p.ID)
+		}
+		fmt.Println("[C] Crear nuevo perfil")
+		fmt.Print("Selecciona un perfil: ")
+		choice, _ := reader.ReadString('\n')
+		choice = strings.TrimSpace(choice)
+
+		var selected domain.CloneProfile
+		if strings.EqualFold(choice, "C") {
+			newProfile, err := createProfileFlow(ctx, reader, profileRepo, user.ID)
+			if err != nil {
+				log.Fatalf("crear perfil: %v", err)
+			}
+			selected = *newProfile
+		} else {
+			idx, err := strconv.Atoi(choice)
+			if err != nil || idx < 1 || idx > len(profiles) {
+				fmt.Println("Seleccion invalida.")
+				continue
+			}
+			selected = profiles[idx-1]
+		}
+
+		if err := runActionsMenu(ctx, reader, selected, user, sessionRepo, messageRepo, traitRepo, characterRepo, narrativeSvc, cloneSvc); err != nil {
+			log.Printf("error en menu: %v", err)
+		}
+	}
+}
+
+func runActionsMenu(
+	ctx context.Context,
+	reader *bufio.Reader,
+	profile domain.CloneProfile,
+	user domain.User,
+	sessionRepo repository.SessionRepository,
+	messageRepo repository.MessageRepository,
+	traitRepo repository.TraitRepository,
+	characterRepo repository.CharacterRepository,
+	narrativeSvc *service.NarrativeService,
+	cloneSvc *service.CloneService,
+) error {
+	for {
+		fmt.Printf("\n--- Trabajando con: %s ---\n", strings.ToUpper(profile.Name))
+		fmt.Println("[1] Chatear")
+		fmt.Println("[2] Agregar Vinculo/Personaje")
+		fmt.Println("[3] Sembrar Escenario/Recuerdo")
+		fmt.Println("[4] Cambiar Clon")
+		fmt.Println("[5] Salir")
+		fmt.Print("Selecciona una opcion: ")
+
+		line, _ := reader.ReadString('\n')
+		line = strings.TrimSpace(line)
+		switch line {
+		case "1":
+			if err := chatFlow(ctx, reader, profile, user, sessionRepo, messageRepo, cloneSvc); err != nil {
+				fmt.Printf("Error en chat: %v\n", err)
+			}
+		case "2":
+			if err := addCharacterFlow(ctx, reader, profile, narrativeSvc); err != nil {
+				fmt.Printf("Error creando personaje: %v\n", err)
+			} else {
+				fmt.Println("Vinculo/personaje creado.")
+			}
+		case "3":
+			if err := seedMemoryFlow(ctx, reader, profile, narrativeSvc); err != nil {
+				fmt.Printf("Error sembrando escenario: %v\n", err)
+			} else {
+				fmt.Println("Escenario implantado. El clon ahora recordara esto al iniciar el chat.")
+			}
+		case "4":
+			return nil
+		case "5":
+			os.Exit(0)
+		default:
+			fmt.Println("Opcion invalida.")
+		}
+	}
+}
+
+func chatFlow(ctx context.Context, reader *bufio.Reader, profile domain.CloneProfile, user domain.User, sessionRepo repository.SessionRepository, messageRepo repository.MessageRepository, cloneSvc *service.CloneService) error {
 	session := domain.Session{
 		ID:        uuid.NewString(),
 		UserID:    user.ID,
@@ -114,40 +164,23 @@ func main() {
 		CreatedAt: time.Now().UTC(),
 	}
 	if err := sessionRepo.Create(ctx, session); err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("crear sesion: %w", err)
 	}
 
-	traits, err := traitRepo.FindByProfileID(ctx, profile.ID)
-	if err != nil {
-		log.Printf("warning: could not load traits: %v", err)
-	}
-
-	if isNew || len(traits) == 0 {
-		fmt.Println("Bienvenido. Realizaremos una breve bateria (IPIP-20) para calibrar la personalidad del clon.")
-		traits, err = runQuestionnaire(ctx, reader, profile, traitRepo)
-		if err != nil {
-			log.Fatalf("cuestionario fallo: %v", err)
-		}
-	}
-
-	printState(profile, traits)
-	runChat(ctx, reader, profile, user, session, messageRepo, cloneSvc)
-}
-
-func runChat(ctx context.Context, reader *bufio.Reader, profile domain.CloneProfile, user domain.User, session domain.Session, messageRepo repository.MessageRepository, cloneSvc *service.CloneService) {
+	fmt.Println("---- Modo Chat (escribe 'salir' para terminar chat) ----")
 	for {
 		fmt.Print("Tu > ")
 		text, err := reader.ReadString('\n')
 		if err != nil {
-			log.Fatalf("read input: %v", err)
+			return fmt.Errorf("leer input: %w", err)
 		}
 		text = strings.TrimSpace(text)
 		if text == "" {
 			continue
 		}
 		if strings.EqualFold(text, "salir") || strings.EqualFold(text, "exit") {
-			fmt.Println("Saliendo...")
-			return
+			fmt.Println("Saliendo del chat...")
+			return nil
 		}
 
 		userMsg := domain.Message{
@@ -159,82 +192,71 @@ func runChat(ctx context.Context, reader *bufio.Reader, profile domain.CloneProf
 			CreatedAt: time.Now().UTC(),
 		}
 		if err := messageRepo.Create(ctx, userMsg); err != nil {
-			log.Printf("error saving user message: %v", err)
+			fmt.Printf("error guardando mensaje de usuario: %v\n", err)
 			continue
 		}
 
 		cloneMsg, err := cloneSvc.Chat(ctx, user.ID, session.ID, text)
 		if err != nil {
-			log.Printf("error generating clone response: %v", err)
+			fmt.Printf("error generando respuesta: %v\n", err)
 			continue
 		}
-
 		fmt.Printf("%s > %s\n", profile.Name, cloneMsg.Content)
 	}
 }
 
-func runQuestionnaire(ctx context.Context, reader *bufio.Reader, profile domain.CloneProfile, traitRepo repository.TraitRepository) ([]domain.Trait, error) {
-	for i := range questions {
-		questions[i].ID = i + 1
-		questions[i].Category = domain.TraitCategoryBigFive
+func addCharacterFlow(ctx context.Context, reader *bufio.Reader, profile domain.CloneProfile, narrativeSvc *service.NarrativeService) error {
+	fmt.Print("Nombre del personaje: ")
+	name, _ := reader.ReadString('\n')
+	name = strings.TrimSpace(name)
+	fmt.Print("Relacion (ej: amigo, ex-pareja): ")
+	rel, _ := reader.ReadString('\n')
+	rel = strings.TrimSpace(rel)
+	fmt.Print("Estado del vinculo (ej: estable, conflictivo): ")
+	bondStatus, _ := reader.ReadString('\n')
+	bondStatus = strings.TrimSpace(bondStatus)
+	fmt.Print("Nivel de vinculo (0-100): ")
+	levelStr, _ := reader.ReadString('\n')
+	levelStr = strings.TrimSpace(levelStr)
+	level, err := strconv.Atoi(levelStr)
+	if err != nil {
+		level = 0
 	}
 
-	totals := make(map[string]int)
-	counts := make(map[string]int)
-
-	for _, q := range questions {
-		for {
-			fmt.Printf("[PREGUNTA %d/%d] %s\n", q.ID, len(questions), q.Text)
-			fmt.Print("Responde del 1 (Totalmente en desacuerdo) al 5 (Totalmente de acuerdo): ")
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				return nil, err
-			}
-			line = strings.TrimSpace(line)
-			val, err := strconv.Atoi(line)
-			if err != nil || val < 1 || val > 5 {
-				fmt.Println("Entrada invalida, ingresa un numero entre 1 y 5.")
-				continue
-			}
-			score := val
-			if q.IsInverse {
-				score = 6 - val
-			}
-			totals[q.Trait] += score
-			counts[q.Trait]++
-			fmt.Println()
-			break
-		}
+	profileUUID, err := uuid.Parse(profile.ID)
+	if err != nil {
+		return fmt.Errorf("parse profile id: %w", err)
 	}
 
-	now := time.Now().UTC()
-	var traits []domain.Trait
-	fmt.Println("Perfil calculado (previo a guardar):")
-	for trait, sum := range totals {
-		count := counts[trait]
-		normalized := int(math.Round((float64(sum) / (float64(count) * 5.0)) * 100.0))
-		description := interpretScore(normalized)
-		fmt.Printf("- %s: %d%% (%s)\n", titleCase(trait), normalized, description)
-
-		t := domain.Trait{
-			ID:        uuid.NewString(),
-			ProfileID: profile.ID,
-			Category:  domain.TraitCategoryBigFive,
-			Trait:     trait,
-			Value:     normalized,
-			CreatedAt: now,
-			UpdatedAt: now,
-		}
-		if err := traitRepo.Upsert(ctx, t); err != nil {
-			return nil, fmt.Errorf("upsert trait %s: %w", trait, err)
-		}
-		traits = append(traits, t)
-	}
-	fmt.Println("Perfil guardado.")
-	return traits, nil
+	return narrativeSvc.CreateRelation(ctx, profileUUID, name, rel, bondStatus, level)
 }
 
-func ensureUser(ctx context.Context, pool *pgxpool.Pool, repo repository.UserRepository, email string) (domain.User, bool, error) {
+func seedMemoryFlow(ctx context.Context, reader *bufio.Reader, profile domain.CloneProfile, narrativeSvc *service.NarrativeService) error {
+	fmt.Print("Describe el escenario/recuerdo: ")
+	content, _ := reader.ReadString('\n')
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return errors.New("contenido vacio")
+	}
+	fmt.Print("Importancia (1-10, default 5): ")
+	impStr, _ := reader.ReadString('\n')
+	impStr = strings.TrimSpace(impStr)
+	importance := 5
+	if impStr != "" {
+		if v, err := strconv.Atoi(impStr); err == nil {
+			importance = v
+		}
+	}
+
+	profileUUID, err := uuid.Parse(profile.ID)
+	if err != nil {
+		return fmt.Errorf("parse profile id: %w", err)
+	}
+
+	return narrativeSvc.InjectMemory(ctx, profileUUID, content, importance)
+}
+
+func ensureUser(ctx context.Context, pool *pgxpool.Pool, repo repository.UserRepository, email string) (domain.User, error) {
 	const query = `
 		SELECT id, email, display_name, created_at
 		FROM users
@@ -244,10 +266,10 @@ func ensureUser(ctx context.Context, pool *pgxpool.Pool, repo repository.UserRep
 	var u domain.User
 	err := pool.QueryRow(ctx, query, email).Scan(&u.ID, &u.Email, &u.DisplayName, &u.CreatedAt)
 	if err == nil {
-		return u, false, nil
+		return u, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		return domain.User{}, false, err
+		return domain.User{}, err
 	}
 
 	u = domain.User{
@@ -256,70 +278,52 @@ func ensureUser(ctx context.Context, pool *pgxpool.Pool, repo repository.UserRep
 		CreatedAt: time.Now().UTC(),
 	}
 	if err := repo.Create(ctx, u); err != nil {
-		return domain.User{}, false, err
+		return domain.User{}, err
 	}
-	return u, true, nil
+	return u, nil
 }
 
-func ensureProfile(ctx context.Context, repo repository.ProfileRepository, userID string) (domain.CloneProfile, error) {
-	profile, err := repo.GetByUserID(ctx, userID)
-	if err == nil {
-		return profile, nil
+func listProfiles(ctx context.Context, pool *pgxpool.Pool, userID string) ([]domain.CloneProfile, error) {
+	const query = `
+		SELECT id, user_id, name, bio, created_at
+		FROM clone_profiles
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+	`
+	rows, err := pool.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return domain.CloneProfile{}, err
-	}
+	defer rows.Close()
 
-	profile = domain.CloneProfile{
+	var profiles []domain.CloneProfile
+	for rows.Next() {
+		var p domain.CloneProfile
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.Bio, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		profiles = append(profiles, p)
+	}
+	return profiles, rows.Err()
+}
+
+func createProfileFlow(ctx context.Context, reader *bufio.Reader, repo repository.ProfileRepository, userID string) (*domain.CloneProfile, error) {
+	fmt.Print("Nombre del clon: ")
+	name, _ := reader.ReadString('\n')
+	name = strings.TrimSpace(name)
+	fmt.Print("Bio: ")
+	bio, _ := reader.ReadString('\n')
+	bio = strings.TrimSpace(bio)
+
+	profile := domain.CloneProfile{
 		ID:        uuid.NewString(),
 		UserID:    userID,
-		Name:      "Clone Test",
-		Bio:       "Soy un clon de prueba en la terminal.",
+		Name:      name,
+		Bio:       bio,
 		CreatedAt: time.Now().UTC(),
 	}
 	if err := repo.Create(ctx, profile); err != nil {
-		return domain.CloneProfile{}, err
+		return nil, err
 	}
-	return profile, nil
-}
-
-func printState(profile domain.CloneProfile, traits []domain.Trait) {
-	fmt.Println("====================================")
-	fmt.Printf("Clon: %s\n", profile.Name)
-	if strings.TrimSpace(profile.Bio) != "" {
-		fmt.Printf("Bio: %s\n", profile.Bio)
-	}
-	fmt.Println("Rasgos actuales:")
-	if len(traits) == 0 {
-		fmt.Println("- (sin rasgos aun)")
-	} else {
-		for _, t := range traits {
-			if t.Confidence != nil {
-				fmt.Printf("- %s: %d/100 (conf=%.2f)\n", titleCase(t.Trait), t.Value, *t.Confidence)
-			} else {
-				fmt.Printf("- %s: %d/100\n", titleCase(t.Trait), t.Value)
-			}
-		}
-	}
-	fmt.Println("====================================")
-}
-
-func titleCase(s string) string {
-	if s == "" {
-		return s
-	}
-	runes := []rune(s)
-	runes[0] = []rune(strings.ToUpper(string(runes[0])))[0]
-	return string(runes)
-}
-
-func interpretScore(score int) string {
-	switch {
-	case score < 40:
-		return "Baja"
-	case score < 60:
-		return "Moderada"
-	default:
-		return "Alta"
-	}
+	return &profile, nil
 }
