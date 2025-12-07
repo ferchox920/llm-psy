@@ -1,6 +1,11 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+	pgvector "github.com/pgvector/pgvector-go"
+)
 
 type User struct {
 	ID          string    `json:"id"`
@@ -49,4 +54,30 @@ type Trait struct {
 	Confidence *float64  `json:"confidence,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// Narrative structures
+// Usamos uuid.UUID para IDs y pgvector.Vector para embeddings vectoriales.
+type Character struct {
+	ID             uuid.UUID `json:"id"`
+	CloneProfileID uuid.UUID `json:"clone_profile_id"`
+	Name           string    `json:"name"`
+	Relation       string    `json:"relation"`
+	Archetype      string    `json:"archetype"`
+	BondStatus     string    `json:"bond_status"`
+	BondLevel      int       `json:"bond_level"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type NarrativeMemory struct {
+	ID                 uuid.UUID       `json:"id"`
+	CloneProfileID     uuid.UUID       `json:"clone_profile_id"`
+	RelatedCharacterID *uuid.UUID      `json:"related_character_id,omitempty"`
+	Content            string          `json:"content"`
+	Embedding          pgvector.Vector `json:"embedding"`
+	Importance         int             `json:"importance"`
+	HappenedAt         time.Time       `json:"happened_at"`
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 }
