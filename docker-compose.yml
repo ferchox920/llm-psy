@@ -1,6 +1,13 @@
 services:
   db:
-    image: postgres:15
+    # ANTES: image: postgres:15
+    # AHORA (Usamos la imagen que trae el plugin instalado):
+    image: pgvector/pgvector:pg15
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clone_llm}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-clone_llm}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clone_llm}
@@ -14,7 +21,8 @@ services:
   migrate:
     image: migrate/migrate:v4.17.0
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
       MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-postgres://clone_llm:clone_llm@db:5432/clone_llm?sslmode=disable}
     volumes:
