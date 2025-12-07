@@ -88,10 +88,13 @@ func main() {
 	sessionRepo := repository.NewPgSessionRepository(pool)
 	messageRepo := repository.NewPgMessageRepository(pool)
 	traitRepo := repository.NewPgTraitRepository(pool)
+	characterRepo := repository.NewPgCharacterRepository(pool)
+	memoryRepo := repository.NewPgMemoryRepository(pool)
 
 	llmClient := llm.NewHTTPClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, nil)
 	contextSvc := service.NewBasicContextService(messageRepo)
-	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc)
+	narrativeSvc := service.NewNarrativeService(characterRepo, memoryRepo, llmClient)
+	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc, narrativeSvc)
 
 	user, isNew, err := ensureUser(ctx, pool, userRepo, "cli_test@example.com")
 	if err != nil {

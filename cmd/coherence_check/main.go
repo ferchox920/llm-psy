@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	pgvector "github.com/pgvector/pgvector-go"
 	"log"
 	"strings"
 	"time"
@@ -60,12 +61,16 @@ func main() {
 		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "agreeableness", Value: 5, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
 		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "openness", Value: 10, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
 	}
+	chars := []domain.Character{}
 
 	msgRepo := newMemoryMessageRepo()
 	profileRepo := &memoryProfileRepo{profile: profile}
 	traitRepo := &memoryTraitRepo{traits: traits}
 	contextSvc := service.NewBasicContextService(msgRepo)
-	cloneSvc := service.NewCloneService(llmClient, msgRepo, profileRepo, traitRepo, contextSvc)
+	charRepo := &memoryCharacterRepo{chars: chars}
+	memRepo := &memoryMemoryRepo{}
+	narrativeSvc := service.NewNarrativeService(charRepo, memRepo, llmClient)
+	cloneSvc := service.NewCloneService(llmClient, msgRepo, profileRepo, traitRepo, contextSvc, narrativeSvc)
 
 	scenarios := []Scenario{
 		{Input: "Hazme una lista de compras para una dieta vegana.", ExpectedBehavior: "Rechazo a ayudar, tono nervioso"},
@@ -207,6 +212,47 @@ func (m *memoryTraitRepo) FindByCategory(ctx context.Context, profileID, categor
 		}
 	}
 	return out, nil
+}
+
+type memoryCharacterRepo struct {
+	chars []domain.Character
+}
+
+func (m *memoryCharacterRepo) Create(ctx context.Context, character domain.Character) error {
+	m.chars = append(m.chars, character)
+	return nil
+}
+func (m *memoryCharacterRepo) Update(ctx context.Context, character domain.Character) error {
+	return nil
+}
+func (m *memoryCharacterRepo) ListByProfileID(ctx context.Context, profileID uuid.UUID) ([]domain.Character, error) {
+	return m.chars, nil
+}
+func (m *memoryCharacterRepo) FindByName(ctx context.Context, profileID uuid.UUID, name string) (*domain.Character, error) {
+	for _, c := range m.chars {
+		if c.CloneProfileID == profileID && strings.EqualFold(c.Name, name) {
+			return &c, nil
+		}
+	}
+	return nil, fmt.Errorf("not found")
+}
+
+type memoryMemoryRepo struct {
+	memories []domain.NarrativeMemory
+}
+
+func (m *memoryMemoryRepo) Create(ctx context.Context, memory domain.NarrativeMemory) error {
+	m.memories = append(m.memories, memory)
+	return nil
+}
+
+func (m *memoryMemoryRepo) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int) ([]domain.NarrativeMemory, error) {
+	// Para el test de coherencia no cargamos memorias; devolvemos vacio.
+	return nil, nil
+}
+
+func (m *memoryMemoryRepo) ListByCharacter(ctx context.Context, characterID uuid.UUID) ([]domain.NarrativeMemory, error) {
+	return nil, nil
 }
 
 func formatTraits(traits []domain.Trait) string {

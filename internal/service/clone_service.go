@@ -15,11 +15,12 @@ import (
 
 // CloneService orquesta la generacion de respuestas usando el LLM y persiste los mensajes.
 type CloneService struct {
-	llmClient      llm.LLMClient
-	messageRepo    repository.MessageRepository
-	profileRepo    repository.ProfileRepository
-	traitRepo      repository.TraitRepository
-	contextService ContextService
+	llmClient        llm.LLMClient
+	messageRepo      repository.MessageRepository
+	profileRepo      repository.ProfileRepository
+	traitRepo        repository.TraitRepository
+	contextService   ContextService
+	narrativeService *NarrativeService
 }
 
 func NewCloneService(
@@ -28,13 +29,15 @@ func NewCloneService(
 	profileRepo repository.ProfileRepository,
 	traitRepo repository.TraitRepository,
 	contextService ContextService,
+	narrativeService *NarrativeService,
 ) *CloneService {
 	return &CloneService{
-		llmClient:      llmClient,
-		messageRepo:    messageRepo,
-		profileRepo:    profileRepo,
-		traitRepo:      traitRepo,
-		contextService: contextService,
+		llmClient:        llmClient,
+		messageRepo:      messageRepo,
+		profileRepo:      profileRepo,
+		traitRepo:        traitRepo,
+		contextService:   contextService,
+		narrativeService: narrativeService,
 	}
 }
 
@@ -55,7 +58,19 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 		return domain.Message{}, fmt.Errorf("get context: %w", err)
 	}
 
-	prompt := s.buildClonePrompt(&profile, traits, contextText, userMessage)
+	var narrativeText string
+	if s.narrativeService != nil {
+		profileUUID, parseErr := uuid.Parse(profile.ID)
+		if parseErr == nil {
+			narrativeText, err = s.narrativeService.BuildNarrativeContext(ctx, profileUUID, userMessage)
+			if err != nil {
+				// No bloquear la conversacion si falla la narrativa; logico delegar a caller
+				narrativeText = ""
+			}
+		}
+	}
+
+	prompt := s.buildClonePrompt(&profile, traits, contextText, narrativeText, userMessage)
 
 	response, err := s.llmClient.Generate(ctx, prompt)
 	if err != nil {
@@ -78,7 +93,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	return cloneMessage, nil
 }
 
-func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []domain.Trait, contextText, userMessage string) string {
+func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []domain.Trait, contextText, narrativeText, userMessage string) string {
 	var traitsDesc strings.Builder
 	for _, t := range traits {
 		intensity := "Moderado"
@@ -88,6 +103,10 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 			intensity = "Muy Alto"
 		}
 		traitsDesc.WriteString(fmt.Sprintf("- %s: %d/100 (%s)\n", t.Trait, t.Value, intensity))
+	}
+
+	if strings.TrimSpace(narrativeText) == "" {
+		narrativeText = "(Sin hallazgos narrativos relevantes)"
 	}
 
 	return fmt.Sprintf(`
@@ -106,6 +125,9 @@ INSTRUCCIONES DE FORMATO Y TONO (CRITICO):
 3. NATURALIDAD: Si te piden una lista (ej: libros, comida), NO des un catalogo. Menciona 2 o 3 cosas casualmente en un parrafo, como haria un humano con prisa.
 4. IMPERFECCION: Puedes ser vago, sarcastico o breve si tus rasgos lo dictan. No intentes ser exhaustivo.
 
+INFORMACION NARRATIVA Y CONTEXTUAL:
+%s
+
 CONTEXTO RECIENTE:
 %s
 
@@ -113,5 +135,5 @@ MENSAJE DEL USUARIO:
 "%s"
 
 RESPUESTA DEL CLON:
-`, profile.Name, profile.Bio, traitsDesc.String(), contextText, userMessage)
+`, profile.Name, profile.Bio, traitsDesc.String(), narrativeText, contextText, userMessage)
 }
