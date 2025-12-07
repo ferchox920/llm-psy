@@ -13,7 +13,7 @@ import (
 	"clone-llm/internal/repository"
 )
 
-// CloneService orquesta la generación de respuestas usando el LLM y persiste los mensajes.
+// CloneService orquesta la generacion de respuestas usando el LLM y persiste los mensajes.
 type CloneService struct {
 	llmClient      llm.LLMClient
 	messageRepo    repository.MessageRepository
@@ -55,7 +55,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 		return domain.Message{}, fmt.Errorf("get context: %w", err)
 	}
 
-	prompt := buildClonePrompt(profile, traits, contextText, userMessage)
+	prompt := s.buildClonePrompt(&profile, traits, contextText, userMessage)
 
 	response, err := s.llmClient.Generate(ctx, prompt)
 	if err != nil {
@@ -78,39 +78,40 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	return cloneMessage, nil
 }
 
-func buildClonePrompt(profile domain.CloneProfile, traits []domain.Trait, contextText, userMessage string) string {
-	var traitsParts []string
+func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []domain.Trait, contextText, userMessage string) string {
+	var traitsDesc strings.Builder
 	for _, t := range traits {
-		traitsParts = append(traitsParts, fmt.Sprintf("%s: %d/100", titleCase(t.Trait), t.Value))
+		intensity := "Moderado"
+		if t.Value < 30 {
+			intensity = "Muy Bajo"
+		} else if t.Value > 70 {
+			intensity = "Muy Alto"
+		}
+		traitsDesc.WriteString(fmt.Sprintf("- %s: %d/100 (%s)\n", t.Trait, t.Value, intensity))
 	}
 
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Eres %s.\n", profile.Name))
-	if strings.TrimSpace(profile.Bio) != "" {
-		sb.WriteString(fmt.Sprintf("Bio: %s\n", profile.Bio))
-	}
-	if len(traitsParts) > 0 {
-		sb.WriteString("Rasgos (modelo Big Five): ")
-		sb.WriteString(strings.Join(traitsParts, ", "))
-		sb.WriteString("\n")
-	}
-	sb.WriteString("Estás en una conversación.\n")
-	if strings.TrimSpace(contextText) != "" {
-		sb.WriteString("Historial reciente:\n")
-		sb.WriteString(contextText)
-		sb.WriteString("\n")
-	}
-	sb.WriteString("Responde al último mensaje del usuario manteniendo el tono y personalidad descritos.\n")
-	sb.WriteString("Mensaje del usuario:\n")
-	sb.WriteString(userMessage)
-	return sb.String()
-}
+	return fmt.Sprintf(`
+ROL: Eres una replica digital (clon) de una persona real. Tu objetivo es chatear simulando su personalidad.
+NO eres un asistente de IA. NO estas para "servir" ni "ayudar" a menos que tu personalidad lo dicte.
 
-func titleCase(s string) string {
-	if s == "" {
-		return s
-	}
-	runes := []rune(s)
-	runes[0] = []rune(strings.ToUpper(string(runes[0])))[0]
-	return string(runes)
+PERFIL PSICOLOGICO (Obligatorio respetar):
+Nombre: %s
+Bio: %s
+Rasgos de Personalidad:
+%s
+
+INSTRUCCIONES DE FORMATO Y TONO (CRITICO):
+1. ESTILO CHAT: Escribe como en WhatsApp/Telegram. Usa parrafos cortos.
+2. PROHIBIDO: NO uses listas con vinetas (bullets), NO uses negritas para titulos, NO uses estructuras de "menu".
+3. NATURALIDAD: Si te piden una lista (ej: libros, comida), NO des un catalogo. Menciona 2 o 3 cosas casualmente en un parrafo, como haria un humano con prisa.
+4. IMPERFECCION: Puedes ser vago, sarcastico o breve si tus rasgos lo dictan. No intentes ser exhaustivo.
+
+CONTEXTO RECIENTE:
+%s
+
+MENSAJE DEL USUARIO:
+"%s"
+
+RESPUESTA DEL CLON:
+`, profile.Name, profile.Bio, traitsDesc.String(), contextText, userMessage)
 }
