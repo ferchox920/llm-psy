@@ -15,7 +15,7 @@ import (
 	"clone-llm/internal/repository"
 )
 
-// AnalysisService usa el LLM para inferir rasgos y los persiste.
+// AnalysisService usa el LLM para inferir rasgos y evaluar carga emocional.
 type AnalysisService struct {
 	llmClient   llm.LLMClient
 	traitRepo   repository.TraitRepository
@@ -37,25 +37,16 @@ func NewAnalysisService(
 	}
 }
 
+// AnalyzeAndPersist guarda los rasgos inferidos y devuelve error si falla.
 func (s *AnalysisService) AnalyzeAndPersist(ctx context.Context, userID, text string) error {
 	profile, err := s.profileRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("get profile for user %s: %w", userID, err)
 	}
 
-	systemPrompt := `Eres un psicólogo experto observando una conversación. Analiza el siguiente texto del usuario y estima valores numéricos (0-100) para los rasgos del modelo Big Five (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism). Devuelve SOLO un JSON con este formato: {"traits": [{"trait": "openness", "value": 85, "confidence": 0.9}, ...]}`
-	fullPrompt := systemPrompt + "\n\nTexto del usuario:\n" + strings.TrimSpace(text)
-
-	rawResp, err := s.llmClient.Generate(ctx, fullPrompt)
+	parsed, err := s.runAnalysis(ctx, text)
 	if err != nil {
-		return fmt.Errorf("llm generate: %w", err)
-	}
-
-	cleanedResp := cleanLLMJSONResponse(rawResp)
-
-	var parsed llmTraitsResponse
-	if err := json.Unmarshal([]byte(cleanedResp), &parsed); err != nil {
-		return fmt.Errorf("parse llm response: %w", err)
+		return err
 	}
 
 	now := time.Now().UTC()
@@ -80,8 +71,67 @@ func (s *AnalysisService) AnalyzeAndPersist(ctx context.Context, userID, text st
 	return nil
 }
 
-type llmTraitsResponse struct {
-	Traits []llmTraitItem `json:"traits"`
+// AnalyzeEmotion devuelve la intensidad y categoria emocional sin persistir rasgos.
+func (s *AnalysisService) AnalyzeEmotion(ctx context.Context, text string) (EmotionAnalysis, error) {
+	parsed, err := s.runAnalysis(ctx, text)
+	if err != nil {
+		return EmotionAnalysis{}, err
+	}
+	intensity := parsed.EmotionalIntensity
+	if intensity <= 0 {
+		intensity = 10
+	}
+	category := strings.TrimSpace(parsed.EmotionCategory)
+	if category == "" {
+		category = "NEUTRAL"
+	}
+	return EmotionAnalysis{
+		EmotionalIntensity: intensity,
+		EmotionCategory:    category,
+	}, nil
+}
+
+type EmotionAnalysis struct {
+	EmotionalIntensity int
+	EmotionCategory    string
+}
+
+func (s *AnalysisService) runAnalysis(ctx context.Context, text string) (llmAnalysisResponse, error) {
+	systemPrompt := `Eres un psicologo experto observando una conversacion. Analiza el siguiente texto del usuario y:
+- Estima valores numericos (0-100) para los rasgos del modelo Big Five (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism).
+- Extrae la carga emocional del mensaje.
+- Devuelve SOLO un JSON con este formato:
+{
+  "traits": [{"trait": "openness", "value": 85, "confidence": 0.9}, ...],
+  "emotional_intensity": 75,
+  "emotion_category": "IRA"
+}
+
+Guia de emotional_intensity (1-100):
+- 0-20: saludos triviales, clima, small talk
+- 21-60: charla normal sin carga afectiva fuerte
+- 61-80: discusiones, confesiones personales, reclamos
+- 81-100: traumas, insultos graves, declaraciones de amor/odio`
+	fullPrompt := systemPrompt + "\n\nTexto del usuario:\n" + strings.TrimSpace(text)
+
+	rawResp, err := s.llmClient.Generate(ctx, fullPrompt)
+	if err != nil {
+		return llmAnalysisResponse{}, fmt.Errorf("llm generate: %w", err)
+	}
+
+	cleanedResp := cleanLLMJSONResponse(rawResp)
+
+	var parsed llmAnalysisResponse
+	if err := json.Unmarshal([]byte(cleanedResp), &parsed); err != nil {
+		return llmAnalysisResponse{}, fmt.Errorf("parse llm response: %w", err)
+	}
+	return parsed, nil
+}
+
+type llmAnalysisResponse struct {
+	Traits             []llmTraitItem `json:"traits"`
+	EmotionalIntensity int            `json:"emotional_intensity"`
+	EmotionCategory    string         `json:"emotion_category"`
 }
 
 type llmTraitItem struct {

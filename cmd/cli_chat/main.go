@@ -52,7 +52,7 @@ func main() {
 	llmClient := llm.NewHTTPClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, nil)
 	contextSvc := service.NewBasicContextService(messageRepo)
 	narrativeSvc := service.NewNarrativeService(characterRepo, memoryRepo, llmClient)
-	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc, narrativeSvc)
+	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, nil)
 
 	user, err := ensureUser(ctx, pool, userRepo, "cli_test@example.com")
 	if err != nil {

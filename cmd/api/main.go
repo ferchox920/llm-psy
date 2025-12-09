@@ -49,7 +49,7 @@ func main() {
 	analysisSvc := service.NewAnalysisService(llmClient, traitRepo, profileRepo, logger)
 	contextSvc := service.NewBasicContextService(messageRepo)
 	narrativeSvc := service.NewNarrativeService(characterRepo, memoryRepo, llmClient)
-	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc, narrativeSvc)
+	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, analysisSvc)
 
 	handlers := apihttp.NewHandlers(logger, userRepo, profileRepo, sessionRepo, messageRepo, traitRepo, llmClient, analysisSvc, cloneSvc)
 	router := apihttp.NewRouter(logger, handlers)

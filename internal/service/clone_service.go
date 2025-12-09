@@ -23,6 +23,7 @@ type CloneService struct {
 	traitRepo        repository.TraitRepository
 	contextService   ContextService
 	narrativeService *NarrativeService
+	analysisService  *AnalysisService
 }
 
 var innerMonologueRE = regexp.MustCompile(`(?s)<inner_monologue>.*?</inner_monologue>`)
@@ -34,6 +35,7 @@ func NewCloneService(
 	traitRepo repository.TraitRepository,
 	contextService ContextService,
 	narrativeService *NarrativeService,
+	analysisService *AnalysisService,
 ) *CloneService {
 	return &CloneService{
 		llmClient:        llmClient,
@@ -42,6 +44,7 @@ func NewCloneService(
 		traitRepo:        traitRepo,
 		contextService:   contextService,
 		narrativeService: narrativeService,
+		analysisService:  analysisService,
 	}
 }
 
@@ -51,6 +54,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	if err != nil {
 		return domain.Message{}, fmt.Errorf("get profile: %w", err)
 	}
+	profileUUID, parseErr := uuid.Parse(profile.ID)
 
 	traits, err := s.traitRepo.FindByProfileID(ctx, profile.ID)
 	if err != nil {
@@ -64,7 +68,6 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 
 	var narrativeText string
 	if s.narrativeService != nil {
-		profileUUID, parseErr := uuid.Parse(profile.ID)
 		if parseErr == nil {
 			narrativeText, err = s.narrativeService.BuildNarrativeContext(ctx, profileUUID, userMessage)
 			if err != nil {
@@ -75,6 +78,32 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	}
 
 	prompt := s.buildClonePrompt(&profile, traits, contextText, narrativeText, userMessage)
+
+	// Analizar intensidad emocional y persistir recuerdo si aplica
+	emotionalIntensity := 10
+	emotionCategory := "NEUTRAL"
+	if s.analysisService != nil {
+		emo, err := s.analysisService.AnalyzeEmotion(ctx, userMessage)
+		if err != nil {
+			log.Printf("warning: analyze emotion: %v", err)
+		} else {
+			emotionalIntensity = emo.EmotionalIntensity
+			emotionCategory = emo.EmotionCategory
+		}
+	}
+	if s.narrativeService != nil && parseErr == nil {
+		weight := (emotionalIntensity + 9) / 10
+		if weight < 1 {
+			weight = 1
+		}
+		if weight > 10 {
+			weight = 10
+		}
+		importance := weight
+		if err := s.narrativeService.InjectMemory(ctx, profileUUID, userMessage, importance, weight, emotionCategory); err != nil {
+			log.Printf("warning: inject memory: %v", err)
+		}
+	}
 
 	responseRaw, err := s.llmClient.Generate(ctx, prompt)
 	if err != nil {

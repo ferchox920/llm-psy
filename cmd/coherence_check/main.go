@@ -75,7 +75,7 @@ func main() {
 
 	contextSvc := service.NewBasicContextService(msgRepo)
 	narrativeSvc := service.NewNarrativeService(charRepo, memRepo, llmClient)
-	cloneSvc := service.NewCloneService(llmClient, msgRepo, profileRepo, traitRepo, contextSvc, narrativeSvc)
+	cloneSvc := service.NewCloneService(llmClient, msgRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, nil)
 
 	profileUUID, _ := uuid.Parse(profile.ID)
 
