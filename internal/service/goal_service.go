@@ -1,6 +1,8 @@
 package service
 
 import (
+	"strings"
+
 	"clone-llm/internal/domain"
 )
 
@@ -9,6 +11,8 @@ type AnalysisResult struct {
 	Sentiment    string
 	Curiosity    int
 	Relationship domain.RelationshipVectors
+	Input        string
+	IsTrivial    bool
 }
 
 // DetermineNextGoal devuelve la meta mas adecuada para el turno actual segun heuristica.
@@ -50,6 +54,42 @@ func DetermineNextGoal(profile domain.CloneProfile, analysis AnalysisResult) dom
 	return domain.Goal{
 		ID:          "",
 		Description: "Mantener la conversación fluyendo naturalmente.",
+		Status:      "active",
+		Trigger:     "default",
+	}
+}
+
+// DetermineGoal aplica heuristica de agencia contextual.
+func DetermineGoal(profile domain.CloneProfile, analysis AnalysisResult) domain.Goal {
+	rel := analysis.Relationship
+	lowerInput := strings.ToLower(analysis.Input)
+
+	// 1. Detectar amenaza relacional (Amor toxico)
+	if rel.Trust < 30 && rel.Intimacy > 60 {
+		if strings.Contains(lowerInput, "amigos") || strings.Contains(lowerInput, "salir") || strings.Contains(lowerInput, "noche") || strings.Contains(lowerInput, "trabajo") {
+			return domain.Goal{
+				ID:          "",
+				Description: "Sembrar duda y culpa sobre lo que hara el usuario. No prohibir, pero hacer que se sienta mal.",
+				Status:      "active",
+				Trigger:     "toxic_love_low_trust_high_intimacy",
+			}
+		}
+	}
+
+	// 2. Aburrimiento/trivialidad
+	if analysis.IsTrivial && profile.Big5.Neuroticism < 60 {
+		return domain.Goal{
+			ID:          "",
+			Description: "Responder con minima energia (Grey Rock method).",
+			Status:      "active",
+			Trigger:     "trivial_input",
+		}
+	}
+
+	// 3. Default
+	return domain.Goal{
+		ID:          "",
+		Description: "Mantener la conversación fluida.",
 		Status:      "active",
 		Trigger:     "default",
 	}
