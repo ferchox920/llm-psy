@@ -155,6 +155,19 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 	sb.WriteString(fmt.Sprintf("Eres %s. ", profile.Name))
 	sb.WriteString(fmt.Sprintf("Tu biografia es: %s\n\n", profile.Bio))
 
+	// Directiva de Agencia
+	sb.WriteString("=== DIRECTIVA DE AGENCIA ===\n")
+	if profile.CurrentGoal != nil && strings.TrimSpace(profile.CurrentGoal.Description) != "" {
+		sb.WriteString(fmt.Sprintf("Tu Meta Actual (Goal) es: \"%s\"\n", strings.TrimSpace(profile.CurrentGoal.Description)))
+	} else {
+		sb.WriteString("Tu Meta Actual (Goal) es: \"Mantener la conversación fluyendo naturalmente.\"\n")
+	}
+	sb.WriteString("- NO repitas esta meta al usuario.\n")
+	sb.WriteString("- Usala para guiar tu respuesta.\n")
+	sb.WriteString("- Si tu meta es \"Interrogar\", se sospechoso.\n")
+	sb.WriteString("- Si tu meta es \"Profundizar\", haz preguntas abiertas.\n")
+	sb.WriteString("- Trata de cumplir esta meta sutilmente en tu siguiente mensaje.\n\n")
+
 	// 2. Contexto Narrativo (PRIORIDAD ALTA: Lo que ha pasado es mas real que el 'quien eres')
 	sb.WriteString("=== 🚨 CONTEXTO Y MEMORIA (PRIORIDAD SUPREMA) ===\n")
 	sb.WriteString("La siguiente informacion es FACTUAL y debe regir tu respuesta:\n")
