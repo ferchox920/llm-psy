@@ -20,9 +20,8 @@ func DetermineNextGoal(profile domain.CloneProfile, analysis AnalysisResult) dom
 			return domain.Goal{
 				ID:          "",
 				Description: "Interrogar al usuario sobre sus intenciones reales.",
-				Status:      "pending",
-				Priority:    9,
-				Source:      "system_generated",
+				Status:      "active",
+				Trigger:     "trust_low_neuroticism_high",
 			}
 		}
 	}
@@ -32,9 +31,8 @@ func DetermineNextGoal(profile domain.CloneProfile, analysis AnalysisResult) dom
 		return domain.Goal{
 			ID:          "",
 			Description: "Profundizar en un tema personal o emocional.",
-			Status:      "pending",
-			Priority:    8,
-			Source:      "system_generated",
+			Status:      "active",
+			Trigger:     "intimacy_high_positive",
 		}
 	}
 
@@ -43,9 +41,8 @@ func DetermineNextGoal(profile domain.CloneProfile, analysis AnalysisResult) dom
 		return domain.Goal{
 			ID:          "",
 			Description: "Hacer una pregunta específica sobre un dato mencionado anteriormente.",
-			Status:      "pending",
-			Priority:    7,
-			Source:      "system_generated",
+			Status:      "active",
+			Trigger:     "curiosity_high",
 		}
 	}
 
@@ -53,8 +50,7 @@ func DetermineNextGoal(profile domain.CloneProfile, analysis AnalysisResult) dom
 	return domain.Goal{
 		ID:          "",
 		Description: "Mantener la conversación fluyendo naturalmente.",
-		Status:      "pending",
-		Priority:    5,
-		Source:      "system_generated",
+		Status:      "active",
+		Trigger:     "default",
 	}
 }

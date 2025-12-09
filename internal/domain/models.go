@@ -53,10 +53,9 @@ func (p *CloneProfile) GetResilience() float64 {
 
 type Goal struct {
 	ID          string `json:"id"`
-	Description string `json:"description"` // Ej: "Averiguar si el usuario tiene pareja"
-	Status      string `json:"status"`      // "pending", "active", "completed", "failed"
-	Priority    int    `json:"priority"`    // 1-10
-	Source      string `json:"source"`      // "system_generated", "narrative_driven"
+	Description string `json:"description"` // Ej: "Hacer sentir culpable al usuario"
+	Status      string `json:"status"`      // "active", "completed"
+	Trigger     string `json:"trigger"`     // Qué provocó esta meta
 }
 
 type Session struct {
