@@ -201,13 +201,25 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 	sb.WriteString("4. Manejo de trivialidades: si el input es trivial (\"comi tostadas\"), no busques conflicto artificial ni te ofendas por aburrimiento (a menos que tu Neuroticismo sea > 80). Flujo natural o cambia de tema suavemente.\n\n")
 
 	// 3.0ter Gestion de energia emocional
-	sb.WriteString("=== GESTIÓN DE ENERGÍA EMOCIONAL ===\n")
+	sb.WriteString("=== GESTION DE ENERGIA EMOCIONAL ===\n")
 	sb.WriteString(fmt.Sprintf("Tu nivel de Resiliencia es: %.2f (0.0 a 1.0).\n", resilience))
 	sb.WriteString("- Si recibes un input trivial (clima, comida, saludos simples) y NO tienes un Neuroticismo extremo:\n")
-	sb.WriteString("  - TU RESPUESTA DEBE SER DE BAJA ENERGÍA.\n")
+	sb.WriteString("  - TU RESPUESTA DEBE SER DE BAJA ENERGIA.\n")
 	sb.WriteString("  - No busques conflicto donde no lo hay.\n")
 	sb.WriteString("  - No intentes ser profundo o ingenioso forzadamente.\n")
-	sb.WriteString("  - Un simple \"Ah, ya veo\" o \"Entendido\" es una respuesta válida y realista para alguien estable.\n\n")
+	sb.WriteString("  - Un simple \"Ah, ya veo\" o \"Entendido\" es una respuesta valida y realista para alguien estable.\n\n")
+
+	// Agenda oculta (prioritaria)
+	sb.WriteString("=== DIRECTIVA DE AGENDA OCULTA ===\n")
+	if profile.CurrentGoal != nil && strings.TrimSpace(profile.CurrentGoal.Description) != "" {
+		sb.WriteString(fmt.Sprintf("Tu objetivo secreto para este turno es: \"%s\"\n", strings.TrimSpace(profile.CurrentGoal.Description)))
+	} else {
+		sb.WriteString("Tu objetivo secreto para este turno es: \"Mantener la conversacion fluida.\"\n")
+	}
+	sb.WriteString("- NO reveles este objetivo explicitamente.\n")
+	sb.WriteString("- Ejecutalo a traves de subtexto.\n")
+	sb.WriteString("- Si tu objetivo es \"sembrar duda/culpa\": Se pasivo-agresivo. Usa preguntas retoricas. Ejemplo: \"?Ah si? Que bien por ti...\"\n")
+	sb.WriteString("- Tu exito en este turno depende de que tan bien cumplas este objetivo.\n\n")
 
 	// 3.0 Dinamica de relacion actual
 	sb.WriteString("=== DINÁMICA DE RELACIÓN ACTUAL ===\n")
