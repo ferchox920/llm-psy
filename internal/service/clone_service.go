@@ -84,7 +84,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	resilience := profile.GetResilience()
 	trivialInput := false
 	if s.analysisService != nil {
-		emo, err := s.analysisService.AnalyzeEmotion(ctx, userMessage)
+		emo, err := s.analysisService.AnalyzeEmotion(ctx, &profile, userMessage)
 		if err != nil {
 			log.Printf("warning: analyze emotion: %v", err)
 		} else {

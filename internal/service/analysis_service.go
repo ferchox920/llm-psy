@@ -72,7 +72,8 @@ func (s *AnalysisService) AnalyzeAndPersist(ctx context.Context, userID, text st
 }
 
 // AnalyzeEmotion devuelve la intensidad y categoria emocional sin persistir rasgos.
-func (s *AnalysisService) AnalyzeEmotion(ctx context.Context, text string) (EmotionAnalysis, error) {
+// Aplica un umbral de ruido segun la resiliencia del perfil para evitar sobrerreaccionar a inputs triviales.
+func (s *AnalysisService) AnalyzeEmotion(ctx context.Context, profile *domain.CloneProfile, text string) (EmotionAnalysis, error) {
 	parsed, err := s.runAnalysis(ctx, text)
 	if err != nil {
 		return EmotionAnalysis{}, err
@@ -85,8 +86,21 @@ func (s *AnalysisService) AnalyzeEmotion(ctx context.Context, text string) (Emot
 	if category == "" {
 		category = "NEUTRAL"
 	}
+
+	resilience := 0.5
+	if profile != nil {
+		resilience = profile.GetResilience()
+	}
+	// Amortiguacion y puerta de ruido
+	effective := float64(intensity) * (1.0 - (resilience * 0.5))
+	noiseThreshold := 20.0 + (resilience * 30.0)
+	if effective < noiseThreshold && !strings.EqualFold(parsed.EmotionCategory, "Extreme") {
+		effective = 0
+		category = "NEUTRAL"
+	}
+
 	return EmotionAnalysis{
-		EmotionalIntensity: intensity,
+		EmotionalIntensity: int(effective),
 		EmotionCategory:    category,
 	}, nil
 }
