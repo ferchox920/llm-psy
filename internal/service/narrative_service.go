@@ -45,18 +45,6 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	}
 
 	active := detectActiveCharacters(chars, userMessage)
-	if len(active) > 0 {
-		var lines []string
-		for _, c := range active {
-			line := fmt.Sprintf("%s (%s", c.Name, c.Relation)
-			if strings.TrimSpace(c.BondStatus) != "" {
-				line += fmt.Sprintf(", Vinculo: %s", c.BondStatus)
-			}
-			line += fmt.Sprintf(", Nivel: %d)", c.BondLevel)
-			lines = append(lines, line)
-		}
-		sections = append(sections, "- Personajes Identificados: "+strings.Join(lines, "; "))
-	}
 
 	embed, err := s.llmClient.CreateEmbedding(ctx, userMessage)
 	if err != nil {
@@ -72,16 +60,29 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		var lines []string
 		for _, m := range memories {
 			relative := humanizeRelative(m.HappenedAt)
-			lines = append(lines, fmt.Sprintf("* (%s) %s", relative, strings.TrimSpace(m.Content)))
+			lines = append(lines, fmt.Sprintf("- (%s): %s", relative, strings.TrimSpace(m.Content)))
 		}
-		sections = append(sections, "- Recuerdos Relevantes:\n  "+strings.Join(lines, "\n  "))
+		sections = append(sections, "[🧠 MEMORIA EPISODICA ACTIVA]\n"+strings.Join(lines, "\n"))
+	}
+
+	if len(active) > 0 {
+		var lines []string
+		for _, c := range active {
+			line := fmt.Sprintf("- Interlocutor: %s (Relacion: %s, Nivel: %d/100", c.Name, c.Relation, c.BondLevel)
+			if strings.TrimSpace(c.BondStatus) != "" {
+				line += fmt.Sprintf(", Estado: %s", c.BondStatus)
+			}
+			line += ")."
+			lines = append(lines, line)
+		}
+		sections = append(sections, "[❤️ ESTADO DEL VINCULO]\n"+strings.Join(lines, "\n"))
 	}
 
 	if len(sections) == 0 {
 		return "", nil
 	}
 
-	return "[MEMORIA NARRATIVA]\n" + strings.Join(sections, "\n"), nil
+	return strings.Join(sections, "\n\n"), nil
 }
 
 // CreateRelation crea un personaje/vinculo asociado al perfil.
