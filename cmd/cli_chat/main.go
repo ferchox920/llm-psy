@@ -215,20 +215,20 @@ func addCharacterFlow(ctx context.Context, reader *bufio.Reader, profile domain.
 	fmt.Print("Estado del vinculo (ej: estable, conflictivo): ")
 	bondStatus, _ := reader.ReadString('\n')
 	bondStatus = strings.TrimSpace(bondStatus)
-	fmt.Print("Nivel de vinculo (0-100): ")
-	levelStr, _ := reader.ReadString('\n')
-	levelStr = strings.TrimSpace(levelStr)
-	level, err := strconv.Atoi(levelStr)
-	if err != nil {
-		level = 0
-	}
+	trust := readIntDefault(reader, "Confianza (0-100, default 50): ", 50)
+	intimacy := readIntDefault(reader, "Intimidad (0-100, default 50): ", 50)
+	respect := readIntDefault(reader, "Respeto (0-100, default 50): ", 50)
 
 	profileUUID, err := uuid.Parse(profile.ID)
 	if err != nil {
 		return fmt.Errorf("parse profile id: %w", err)
 	}
 
-	return narrativeSvc.CreateRelation(ctx, profileUUID, name, rel, bondStatus, level)
+	return narrativeSvc.CreateRelation(ctx, profileUUID, name, rel, bondStatus, domain.RelationshipVectors{
+		Trust:    trust,
+		Intimacy: intimacy,
+		Respect:  respect,
+	})
 }
 
 func seedMemoryFlow(ctx context.Context, reader *bufio.Reader, profile domain.CloneProfile, narrativeSvc *service.NarrativeService) error {
@@ -271,6 +271,19 @@ func seedMemoryFlow(ctx context.Context, reader *bufio.Reader, profile domain.Cl
 	}
 
 	return narrativeSvc.InjectMemory(ctx, profileUUID, content, importance, emotionalWeight, sentimentLabel)
+}
+
+func readIntDefault(reader *bufio.Reader, prompt string, def int) int {
+	fmt.Print(prompt)
+	line, _ := reader.ReadString('\n')
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return def
+	}
+	if v, err := strconv.Atoi(line); err == nil {
+		return v
+	}
+	return def
 }
 
 func ensureUser(ctx context.Context, pool *pgxpool.Pool, repo repository.UserRepository, email string) (domain.User, error) {

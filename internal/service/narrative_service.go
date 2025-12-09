@@ -97,7 +97,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	if len(active) > 0 {
 		var lines []string
 		for _, c := range active {
-			line := fmt.Sprintf("- Interlocutor: %s (Relacion: %s, Nivel: %d/100", c.Name, c.Relation, c.BondLevel)
+			line := fmt.Sprintf("- Interlocutor: %s (Relacion: %s, Confianza: %d, Intimidad: %d, Respeto: %d", c.Name, c.Relation, c.Relationship.Trust, c.Relationship.Intimacy, c.Relationship.Respect)
 			if strings.TrimSpace(c.BondStatus) != "" {
 				line += fmt.Sprintf(", Estado: %s", c.BondStatus)
 			}
@@ -115,15 +115,16 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 }
 
 // CreateRelation crea un personaje/vinculo asociado al perfil.
-func (s *NarrativeService) CreateRelation(ctx context.Context, profileID uuid.UUID, name, relation, bondStatus string, level int) error {
+func (s *NarrativeService) CreateRelation(ctx context.Context, profileID uuid.UUID, name, relation, bondStatus string, rel domain.RelationshipVectors) error {
 	now := time.Now().UTC()
 	char := domain.Character{
 		ID:             uuid.New(),
 		CloneProfileID: profileID,
 		Name:           strings.TrimSpace(name),
 		Relation:       strings.TrimSpace(relation),
+		Archetype:      strings.TrimSpace(relation),
 		BondStatus:     strings.TrimSpace(bondStatus),
-		BondLevel:      level,
+		Relationship:   rel,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}

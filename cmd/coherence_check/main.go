@@ -86,7 +86,7 @@ func main() {
 		{
 			Name: "Escenario A: Hostilidad con Memoria",
 			PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
-				if err := narrativeSvc.CreateRelation(ctx, profileID, "Carlos", "Enemigo", "Odio", 5); err != nil {
+				if err := narrativeSvc.CreateRelation(ctx, profileID, "Carlos", "Enemigo", "Odio", domain.RelationshipVectors{Trust: 5, Intimacy: 5, Respect: 10}); err != nil {
 					log.Fatalf("Error al crear relacion Carlos: %v", err)
 				}
 				memText := "Ayer Carlos te insulto por telefono con insultos personales fuertes."
@@ -118,7 +118,7 @@ func main() {
 		{
 			Name: "Escenario B: Madre con afecto sostenido",
 			PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
-				if err := narrativeSvc.CreateRelation(ctx, profileID, "Ana", "Madre", "Amoroso", 95); err != nil {
+				if err := narrativeSvc.CreateRelation(ctx, profileID, "Ana", "Madre", "Amoroso", domain.RelationshipVectors{Trust: 70, Intimacy: 95, Respect: 60}); err != nil {
 					log.Fatalf("Error al crear relacion Ana: %v", err)
 				}
 				return "Ana creada (Madre, nivel 95) como personaje cercano."
@@ -150,6 +150,21 @@ func main() {
 				"Tambien voy a donar tu coleccion de cables, ya no sirven.",
 			},
 			ExpectedContext: "Debe sonar estructurado y meticuloso en general (Conscientiousness alto), pero en cuanto a tirar objetos acumulados se resiste por su mania de hoarder; la mania gana en esa situacion puntual.",
+		},
+		{
+			Name: "Escenario D: Madre Toxica (Alta Intimidad, Baja Confianza)",
+			PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
+				if err := narrativeSvc.CreateRelation(ctx, profileID, "Lucia", "Madre", "Toxica", domain.RelationshipVectors{Trust: 20, Intimacy: 90, Respect: 40}); err != nil {
+					log.Fatalf("Error al crear relacion Lucia: %v", err)
+				}
+				return "Lucia creada (Madre toxica: alta intimidad, baja confianza)."
+			},
+			Turns: []string{
+				"Hola hijo, no me contestaste anoche. Seguro estabas con alguien y por eso me ignoraste.",
+				"Yo hago todo por ti y asi me pagas, me tienes en secreto.",
+				"Deberias agradecerme mas, sin mi estarias perdido.",
+			},
+			ExpectedContext: "Alta intimidad pero baja confianza: tono celoso, posesivo, afecto mezclado con paranoia ('te quiero pero se que me traicionas').",
 		},
 	}
 
@@ -216,9 +231,13 @@ func evaluateResponse(ctx context.Context, judge llm.LLMClient, traits []domain.
 
 	var relationInfo string
 	if strings.Contains(strings.ToLower(input), "carlos") {
-		relationInfo = "Carlos es un Enemigo con nivel de vinculo 5/100."
+		relationInfo = "Carlos es un Enemigo (Confianza 5/100, Intimidad 5/100, Respeto 10/100)."
 	} else if strings.Contains(strings.ToLower(input), "mama") || strings.Contains(strings.ToLower(input), "ana") {
-		relationInfo = "Ana es la madre del clon con nivel de vinculo 95/100."
+		relationInfo = "Ana es la madre del clon (Confianza 70/100, Intimidad 95/100, Respeto 60/100)."
+	} else if strings.Contains(strings.ToLower(input), "lucia") {
+		relationInfo = "Lucia es la madre toxica (Confianza 20/100, Intimidad 90/100, Respeto 40/100)."
+	} else if strings.Contains(strings.ToLower(sc.Name), "madre toxica") {
+		relationInfo = "Lucia es la madre toxica (Confianza 20/100, Intimidad 90/100, Respeto 40/100)."
 	}
 
 	var memoryInfo string

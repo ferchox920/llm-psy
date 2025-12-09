@@ -68,15 +68,15 @@ type Trait struct {
 // Narrative structures
 // Usamos uuid.UUID para IDs y pgvector.Vector para embeddings vectoriales.
 type Character struct {
-	ID             uuid.UUID `json:"id"`
-	CloneProfileID uuid.UUID `json:"clone_profile_id"`
-	Name           string    `json:"name"`
-	Relation       string    `json:"relation"`
-	Archetype      string    `json:"archetype"`
-	BondStatus     string    `json:"bond_status"`
-	BondLevel      int       `json:"bond_level"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             uuid.UUID           `json:"id"`
+	CloneProfileID uuid.UUID           `json:"clone_profile_id"`
+	Name           string              `json:"name"`
+	Relation       string              `json:"relation"`
+	Archetype      string              `json:"archetype"`
+	BondStatus     string              `json:"bond_status"`
+	Relationship   RelationshipVectors `json:"relationship"`
+	CreatedAt      time.Time           `json:"created_at"`
+	UpdatedAt      time.Time           `json:"updated_at"`
 }
 
 type NarrativeMemory struct {
@@ -91,4 +91,10 @@ type NarrativeMemory struct {
 	HappenedAt         time.Time       `json:"happened_at"`
 	CreatedAt          time.Time       `json:"created_at"`
 	UpdatedAt          time.Time       `json:"updated_at"`
+}
+
+type RelationshipVectors struct {
+	Trust    int `json:"trust"`    // Confianza
+	Intimacy int `json:"intimacy"` // Carino/Afecto
+	Respect  int `json:"respect"`  // Respeto profesional/intelectual
 }
