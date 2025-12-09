@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,10 +27,18 @@ func NewPgMemoryRepository(pool *pgxpool.Pool) *PgMemoryRepository {
 }
 
 func (r *PgMemoryRepository) Create(ctx context.Context, memory domain.NarrativeMemory) error {
+	intensity := memory.EmotionalIntensity
+	if intensity <= 0 {
+		intensity = 10
+	}
+	category := strings.TrimSpace(memory.EmotionCategory)
+	if category == "" {
+		category = "NEUTRAL"
+	}
 	const query = `
 		INSERT INTO narrative_memories (
-			id, clone_profile_id, related_character_id, content, embedding, importance, emotional_weight, sentiment_label, happened_at, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			id, clone_profile_id, related_character_id, content, embedding, importance, emotional_weight, emotional_intensity, emotion_category, sentiment_label, happened_at, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 
 	var related interface{}
@@ -45,6 +54,8 @@ func (r *PgMemoryRepository) Create(ctx context.Context, memory domain.Narrative
 		memory.Embedding,
 		memory.Importance,
 		memory.EmotionalWeight,
+		intensity,
+		category,
 		memory.SentimentLabel,
 		memory.HappenedAt,
 		memory.CreatedAt,
@@ -58,7 +69,7 @@ func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, qu
 		k = 5
 	}
 	const query = `
-		SELECT id, clone_profile_id, related_character_id, content, embedding, importance, emotional_weight, sentiment_label, happened_at, created_at, updated_at
+		SELECT id, clone_profile_id, related_character_id, content, embedding, importance, emotional_weight, emotional_intensity, emotion_category, sentiment_label, happened_at, created_at, updated_at
 		FROM narrative_memories
 		WHERE clone_profile_id = $1
 		ORDER BY embedding <=> $2
@@ -75,7 +86,7 @@ func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, qu
 
 func (r *PgMemoryRepository) ListByCharacter(ctx context.Context, characterID uuid.UUID) ([]domain.NarrativeMemory, error) {
 	const query = `
-		SELECT id, clone_profile_id, related_character_id, content, embedding, importance, emotional_weight, sentiment_label, happened_at, created_at, updated_at
+		SELECT id, clone_profile_id, related_character_id, content, embedding, importance, emotional_weight, emotional_intensity, emotion_category, sentiment_label, happened_at, created_at, updated_at
 		FROM narrative_memories
 		WHERE related_character_id = $1
 		ORDER BY happened_at DESC
@@ -102,6 +113,8 @@ func scanMemories(rows pgxRows) ([]domain.NarrativeMemory, error) {
 			&m.Embedding,
 			&m.Importance,
 			&m.EmotionalWeight,
+			&m.EmotionalIntensity,
+			&m.EmotionCategory,
 			&m.SentimentLabel,
 			&m.HappenedAt,
 			&m.CreatedAt,

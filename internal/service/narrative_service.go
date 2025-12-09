@@ -140,6 +140,17 @@ func (s *NarrativeService) InjectMemory(ctx context.Context, profileID uuid.UUID
 	}
 
 	now := time.Now().UTC()
+	intensity := emotionalWeight * 10
+	if intensity <= 0 {
+		intensity = 10
+	}
+	if intensity > 100 {
+		intensity = 100
+	}
+	category := strings.TrimSpace(sentimentLabel)
+	if category == "" {
+		category = "NEUTRAL"
+	}
 	mem := domain.NarrativeMemory{
 		ID:                 uuid.New(),
 		CloneProfileID:     profileID,
@@ -147,6 +158,8 @@ func (s *NarrativeService) InjectMemory(ctx context.Context, profileID uuid.UUID
 		Embedding:          pgvector.NewVector(embed),
 		Importance:         importance,
 		EmotionalWeight:    emotionalWeight,
+		EmotionalIntensity: intensity,
+		EmotionCategory:    category,
 		SentimentLabel:     strings.TrimSpace(sentimentLabel),
 		HappenedAt:         now,
 		CreatedAt:          now,
