@@ -1,95 +1,55 @@
-# 🧠 Clone LLM - Motor de Identidad Conversacional
+# LLM-Psy: Arquitectura de Personalidad Artificial con Permanencia Emocional
 
-Backend en Go diseñado para crear, entrenar y persistir clones conversacionales basados en perfiles psicológicos.
+Motor de **Psique Digital** escrito en Go. Construye clones con memoria persistente, personalidad OCEAN, vínculos complejos y metas propias, separando la lógica determinista (Go) de la generación creativa (LLM).
 
-A diferencia de un chatbot estándar, este sistema construye un **Modelo de Identidad** dinámico. Analiza las interacciones del usuario en segundo plano, infiere rasgos de personalidad (usando modelos como Big Five) y adapta el comportamiento del clon para reflejar fielmente a su contraparte humana.
+## Visión
+El objetivo es crear una entidad que:
+- Mantenga **memoria episódica y emocional** con pesos e intensidades.
+- Modele su **personalidad** con Big Five (OCEAN) y **vectores de relación** (Confianza, Intimidad, Respeto) que evolucionan.
+- Ejercite **Agency** (metas) para dirigir la conversación según su estado emocional.
+- Permanezca agnóstica al proveedor LLM (GPT/Claude/etc.) gracias a interfaces claras.
 
-## 🚀 Estado del Proyecto
+## Arquitectura Técnica
+- **Clean Architecture**: capas `domain` (reglas puras), `repository` (persistencia), `service` (cognición/orquestación), `http` (handlers y router).
+- **Cerebro LLM-agnóstico**: cliente `internal/llm` abstrae el modelo; se puede cambiar de GPT a Claude sin romper el dominio.
+- **Persistencia**: PostgreSQL + pgvector para recuerdos vectoriales y metadata emocional.
 
-| Sprint | Módulo | Estado | Descripción |
-| :--- | :--- | :--- | :--- |
-| **01** | **Core Architecture** | ✅ Completado | Arquitectura limpia, persistencia PostgreSQL, Auth básica. |
-| **02** | **Profile Engine** | ✅ Completado | Inferencia psicológica asíncrona, almacenamiento de rasgos (Big Five). |
-| **03** | **Clone Voice** | ✅ Completado (MVP) | Generación de respuesta (RAG) con memoria a corto plazo e inyección de personalidad. |
+## Modelo Psicológico (Core)
+- **OCEAN / Big Five**: Apertura, Responsabilidad, Extroversión, Amabilidad, Neuroticismo.
+- **Vectores Relacionales**: `Trust`, `Intimacy`, `Respect` (0-100). El tono se ajusta dinámicamente (p.ej., amor tóxico: alta intimidad + baja confianza = celos/paranoia).
+- **Memoria Emocional**: Cada recuerdo guarda intensidad (1-100) y categoría (IRA, MIEDO, ALEGRÍA, etc.) para colorear el contexto.
+- **Agency (Goal Service)**: El clon mantiene una `CurrentGoal` (p.ej., “interrogar”, “profundizar”, “sembrar duda/culpa”) derivada de estado emocional y vínculos; guía la respuesta sin exponer la meta.
 
-## 🛠️ Stack Tecnológico
+## Instalación y Uso
+Requisitos:
+- Go 1.21+
+- Docker (opcional, para DB)
 
-* **Lenguaje:** Go 1.23+
-* **Framework Web:** Gin Gonic
-* **Base de Datos:** PostgreSQL 15 (Driver `pgx/v5` con Pool)
-* **IA / LLM:** Integración agnóstica (OpenAI/Anthropic)
-* **Arquitectura:** Clean Architecture (Hexagonal)
-
-## 📂 Estructura del Proyecto
-
-El proyecto sigue una estructura estándar de Go para servicios escalables:
-
-* `cmd/api`: Punto de entrada del servidor HTTP.
-* `internal/config`: Gestión de configuración y variables de entorno.
-* `internal/domain`: Definición de entidades (User, Profile, Trait, Message).
-* `internal/http`: Capa de transporte (Handlers, Router, Middlewares).
-* `internal/service`: Lógica de negocio (Orquestación de análisis, Clones).
-* `internal/repository`: Capa de persistencia (Implementaciones SQL).
-* `internal/llm`: Cliente y adaptadores para Modelos de Lenguaje.
-* `pkg/logger`: Utilidades transversales (Logging estructurado con Zap).
-
-## 🔌 API Endpoints
-
-### Gestión de Usuarios & Clones
-* `POST /users`: Crear un nuevo usuario.
-* `POST /clone/init`: Inicializar el perfil de clon para un usuario.
-* `GET /clone/profile?user_id={id}`: Obtener la radiografía psicológica del clon (Perfil + Rasgos).
-
-### Chat & Sesión
-* `POST /session`: Crear una sesión de chat efímera.
-* `POST /message`: Enviar mensaje.
-    * *Nota:* Este endpoint dispara el **AnalysisService** en segundo plano (Goroutine) para actualizar los rasgos del clon sin bloquear la respuesta.
-
-## 🧠 Profile Engine (Motor de Psicología)
-
-El sistema implementa un pipeline de análisis asíncrono:
-1.  **Input:** Recibe texto del usuario.
-2.  **Analysis:** Un agente LLM especializado ("El Psicólogo") analiza el texto buscando marcadores de personalidad.
-3.  **Persistencia:** Actualiza o inserta valores en la tabla `traits` usando un modelo **Big Five** (Apertura, Responsabilidad, Extroversión, Amabilidad, Neuroticismo).
-4.  **Evolución:** Los rasgos tienen un nivel de `confidence` y se ajustan con el tiempo (Upsert).
-
-## ⚡ Guía de Inicio Rápido
-
-### Requisitos
-* Go 1.23+
-* Docker & Docker Compose (para la DB)
-
-### 1. Configuración
-Clona el archivo de ejemplo y configura tu API Key de OpenAI (o compatible):
+Pasos rápidos:
 ```bash
-cp .env.example .env
-# Edita .env y agrega tu LLM_API_KEY
-````
-
-### 2. Levantar Infraestructura
-
-Inicia la base de datos PostgreSQL:
-
-```bash
-docker-compose up -d db
+cp .env.example .env   # configura tus claves LLM y DB
+docker-compose up -d db   # opcional: levantar Postgres
+go run ./cmd/api          # iniciar API HTTP
 ```
 
-### 3. Ejecutar Migraciones
-
-El servicio aplica migraciones manualmente o puedes usar la herramienta `migrate`:
-
-```bash
-docker-compose up migrate
+## Estructura del Proyecto
+```
+cmd/
+  api/            # entrypoint del servidor HTTP
+  coherence_check/ # harness de QA conversacional
+internal/
+  config/         # carga de variables
+  domain/         # entidades puras: perfiles, rasgos, goals, memoria, vínculos
+  repository/     # persistencia (Postgres, pgvector)
+  service/        # lógica cognitiva: clone, narrative, analysis, goal
+  http/           # handlers y router
+  llm/            # cliente LLM agnóstico
 ```
 
-### 4. Ejecutar Servidor
+## Comportamiento Clave
+- **Resiliencia**: el clon atenúa insultos leves según su estabilidad (derivada de OCEAN), evitando reacciones desproporcionadas.
+- **Relación Dinámica**: el prompt incorpora la matriz Confianza/Intimidad/Respeto para tonos profesionales, tóxicos o admirativos.
+- **Agenda Oculta**: el prompt inyecta la meta actual y orienta la respuesta vía subtexto sin revelarla.
 
-```bash
-go run ./cmd/api
-```
-
-El servidor iniciará en el puerto `:8080`.
-
------
-
-**Autor:** Fernando Ramones
+## Licencia
+MIT (o la que definas).
