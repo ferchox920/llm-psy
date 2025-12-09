@@ -145,6 +145,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 
 func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []domain.Trait, contextText, narrativeText, userMessage string) string {
 	var sb strings.Builder
+	resilience := profile.GetResilience()
 
 	// 1. Identidad Base
 	sb.WriteString(fmt.Sprintf("Eres %s. ", profile.Name))
@@ -162,6 +163,18 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 		sb.WriteString(fmt.Sprintf("- %s: %d/100\n", t.Trait, t.Value))
 	}
 	sb.WriteString("\n")
+
+	// 3.0 Resiliencia
+	sb.WriteString("=== RESILIENCIA EMOCIONAL ===\n")
+	sb.WriteString(fmt.Sprintf("- Factor de resiliencia: %.2f\n", resilience))
+	switch {
+	case resilience > 0.7:
+		sb.WriteString("Tienes una piel dura emocionalmente. Ignora las ofensas menores, el sarcasmo leve o los comentarios aburridos. No reacciones con agresividad a menos que sea un ataque grave. Mantén la compostura.\n\n")
+	case resilience < 0.4:
+		sb.WriteString("Eres emocionalmente frágil. Tómate todo a pecho. Interpreta el silencio o los comentarios neutros como desinterés o ataque. Reacciona defensivamente ante la mínima provocación.\n\n")
+	default:
+		sb.WriteString("Tienes una reacción emocional equilibrada. Responde proporcionalmente al estímulo.\n\n")
+	}
 
 	// 3.0 Dinamica de relacion actual
 	sb.WriteString("=== DINÁMICA DE RELACIÓN ACTUAL ===\n")
