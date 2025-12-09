@@ -86,6 +86,8 @@ type NarrativeMemory struct {
 	Content            string          `json:"content"`
 	Embedding          pgvector.Vector `json:"embedding"`
 	Importance         int             `json:"importance"`
+	EmotionalWeight    int             `json:"emotional_weight"` // 1-10 escala de carga emocional
+	SentimentLabel     string          `json:"sentiment_label"`  // Ira, Alegria, Miedo, etc.
 	HappenedAt         time.Time       `json:"happened_at"`
 	CreatedAt          time.Time       `json:"created_at"`
 	UpdatedAt          time.Time       `json:"updated_at"`

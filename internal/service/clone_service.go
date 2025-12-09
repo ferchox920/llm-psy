@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,6 +24,8 @@ type CloneService struct {
 	contextService   ContextService
 	narrativeService *NarrativeService
 }
+
+var innerMonologueRE = regexp.MustCompile(`(?s)<inner_monologue>.*?</inner_monologue>`)
 
 func NewCloneService(
 	llmClient llm.LLMClient,
@@ -72,10 +76,13 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 
 	prompt := s.buildClonePrompt(&profile, traits, contextText, narrativeText, userMessage)
 
-	response, err := s.llmClient.Generate(ctx, prompt)
+	responseRaw, err := s.llmClient.Generate(ctx, prompt)
 	if err != nil {
 		return domain.Message{}, fmt.Errorf("llm generate: %w", err)
 	}
+
+	log.Printf("clone raw response (with inner monologue): %s", responseRaw)
+	response := strings.TrimSpace(innerMonologueRE.ReplaceAllString(responseRaw, ""))
 
 	cloneMessage := domain.Message{
 		ID:        uuid.NewString(),
@@ -113,6 +120,11 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 	}
 	sb.WriteString("\n")
 
+	// 3.1 Dinamica de Big5 vs. Manias (Traits)
+	sb.WriteString("=== DINAMICA DE CONFLICTOS INTERNOS ===\n")
+	sb.WriteString("Regla: Si una MANIA especifica (Trait) contradice tu TENDENCIA general (Big 5), la MANIA gana en situaciones especificas, pero la TENDENCIA domina tu estado de animo general.\n")
+	sb.WriteString("Ejemplo: Si eres \"Introvertido\" (Extraversion baja) pero tienes el rasgo \"Actuacion Teatral\", te comportas timidamente hasta que subes a un escenario o te toca \"actuar\", donde te transformas.\n\n")
+
 	// 4. Directivas de Actuacion
 	sb.WriteString("=== DIRECTIVAS DE COMPORTAMIENTO (LEYES DEL SISTEMA) ===\n")
 	sb.WriteString("1. LEY DE VINCULO Y AFECTO (RESOLUCION DE CONFLICTOS):\n")
@@ -125,6 +137,12 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 	sb.WriteString("   - Si la seccion [MEMORIA EPISODICA ACTIVA] contiene eventos especificos (insultos, hechos, nombres), NO respondas genericamente.\n")
 	sb.WriteString("   - DEBES hacer una referencia explicita al recuerdo para demostrar que lo sabes (ej: \"Despues de lo que me dijiste ayer...\", \"Aun me acuerdo de X...\").\n")
 	sb.WriteString("   - Si el recuerdo contradice lo que el usuario dice ahora, confia en TU memoria y confrontalo.\n")
+	sb.WriteString("   - Si el recuerdo es antiguo y de baja intensidad, puedes mostrar dudas o \"memoria borrosa\". Si es de alta intensidad, citado con precision dolorosa, sin suavizar.\n")
+	sb.WriteString("3. PENSAMIENTO OCULTO (antes de responder):\n")
+	sb.WriteString("   - Genera un bloque <inner_monologue> ... </inner_monologue> donde analices la intencion del usuario, revises tu memoria y decidas tu estrategia emocional segun tus rasgos.\n")
+	sb.WriteString("   - Evalua el estado del vinculo actual y decide si debes mentir, ser honesto o manipular.\n")
+	sb.WriteString("   - Tras el bloque, entrega tu respuesta final al usuario SIN incluir instrucciones internas.\n")
+	sb.WriteString("   - Ejemplo de formato: <inner_monologue>Aqui analizo la intencion, memoria activa, vinculo y estrategia emocional (mentir/honesto/manipular). Explico por que elegi ser borde o amable.</inner_monologue>\n")
 
 	// Contexto reciente y mensaje
 	if strings.TrimSpace(contextText) != "" {

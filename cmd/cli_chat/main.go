@@ -248,12 +248,29 @@ func seedMemoryFlow(ctx context.Context, reader *bufio.Reader, profile domain.Cl
 		}
 	}
 
+	fmt.Print("Peso emocional (1-10, default igual a importancia): ")
+	emoStr, _ := reader.ReadString('\n')
+	emoStr = strings.TrimSpace(emoStr)
+	emotionalWeight := importance
+	if emoStr != "" {
+		if v, err := strconv.Atoi(emoStr); err == nil {
+			emotionalWeight = v
+		}
+	}
+
+	fmt.Print("Etiqueta de sentimiento (Ira/Alegria/Miedo/etc, default Neutral): ")
+	sentimentLabel, _ := reader.ReadString('\n')
+	sentimentLabel = strings.TrimSpace(sentimentLabel)
+	if sentimentLabel == "" {
+		sentimentLabel = "Neutral"
+	}
+
 	profileUUID, err := uuid.Parse(profile.ID)
 	if err != nil {
 		return fmt.Errorf("parse profile id: %w", err)
 	}
 
-	return narrativeSvc.InjectMemory(ctx, profileUUID, content, importance)
+	return narrativeSvc.InjectMemory(ctx, profileUUID, content, importance, emotionalWeight, sentimentLabel)
 }
 
 func ensureUser(ctx context.Context, pool *pgxpool.Pool, repo repository.UserRepository, email string) (domain.User, error) {

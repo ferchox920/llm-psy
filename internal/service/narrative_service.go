@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -57,12 +58,40 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	}
 
 	if len(memories) > 0 {
-		var lines []string
+		sort.Slice(memories, func(i, j int) bool {
+			return memories[i].HappenedAt.After(memories[j].HappenedAt)
+		})
+		var traumas []string
+		var recents []string
 		for _, m := range memories {
 			relative := humanizeRelative(m.HappenedAt)
-			lines = append(lines, fmt.Sprintf("- (%s): %s", relative, strings.TrimSpace(m.Content)))
+			weight := m.EmotionalWeight
+			if weight <= 0 {
+				weight = m.Importance
+			}
+			if weight < 1 {
+				weight = 1
+			}
+			if weight > 10 {
+				weight = 10
+			}
+			label := strings.TrimSpace(m.SentimentLabel)
+			if label == "" {
+				label = "Neutral"
+			}
+			line := fmt.Sprintf("- (%s | peso emocional %d/10 | %s): %s", relative, weight, label, strings.TrimSpace(m.Content))
+			if weight >= 8 {
+				traumas = append(traumas, line)
+			} else {
+				recents = append(recents, line)
+			}
 		}
-		sections = append(sections, "[🧠 MEMORIA EPISODICA ACTIVA]\n"+strings.Join(lines, "\n"))
+		if len(traumas) > 0 {
+			sections = append(sections, "=== TRAUMAS Y HECHOS CENTRALES (Inolvidables) ===\n"+strings.Join(traumas, "\n"))
+		}
+		if len(recents) > 0 {
+			sections = append(sections, "=== EVENTOS RECIENTES (Contexto temporal) ===\n"+strings.Join(recents, "\n"))
+		}
 	}
 
 	if len(active) > 0 {
@@ -75,7 +104,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 			line += ")."
 			lines = append(lines, line)
 		}
-		sections = append(sections, "[❤️ ESTADO DEL VINCULO]\n"+strings.Join(lines, "\n"))
+		sections = append(sections, "[ESTADO DEL VINCULO]\n"+strings.Join(lines, "\n"))
 	}
 
 	if len(sections) == 0 {
@@ -102,7 +131,8 @@ func (s *NarrativeService) CreateRelation(ctx context.Context, profileID uuid.UU
 }
 
 // InjectMemory genera el embedding y guarda una memoria narrativa.
-func (s *NarrativeService) InjectMemory(ctx context.Context, profileID uuid.UUID, content string, importance int) error {
+// emotionalWeight escala 1-10 para intensidad afectiva, sentimentLabel describe el tono (Ira, Alegria, Miedo, etc).
+func (s *NarrativeService) InjectMemory(ctx context.Context, profileID uuid.UUID, content string, importance, emotionalWeight int, sentimentLabel string) error {
 	embed, err := s.llmClient.CreateEmbedding(ctx, content)
 	if err != nil {
 		return fmt.Errorf("create embedding: %w", err)
@@ -115,6 +145,8 @@ func (s *NarrativeService) InjectMemory(ctx context.Context, profileID uuid.UUID
 		Content:            strings.TrimSpace(content),
 		Embedding:          pgvector.NewVector(embed),
 		Importance:         importance,
+		EmotionalWeight:    emotionalWeight,
+		SentimentLabel:     strings.TrimSpace(sentimentLabel),
 		HappenedAt:         now,
 		CreatedAt:          now,
 		UpdatedAt:          now,

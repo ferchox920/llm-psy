@@ -28,8 +28,8 @@ func NewPgMemoryRepository(pool *pgxpool.Pool) *PgMemoryRepository {
 func (r *PgMemoryRepository) Create(ctx context.Context, memory domain.NarrativeMemory) error {
 	const query = `
 		INSERT INTO narrative_memories (
-			id, clone_profile_id, related_character_id, content, embedding, importance, happened_at, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			id, clone_profile_id, related_character_id, content, embedding, importance, emotional_weight, sentiment_label, happened_at, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
 
 	var related interface{}
@@ -44,6 +44,8 @@ func (r *PgMemoryRepository) Create(ctx context.Context, memory domain.Narrative
 		memory.Content,
 		memory.Embedding,
 		memory.Importance,
+		memory.EmotionalWeight,
+		memory.SentimentLabel,
 		memory.HappenedAt,
 		memory.CreatedAt,
 		memory.UpdatedAt,
@@ -56,7 +58,7 @@ func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, qu
 		k = 5
 	}
 	const query = `
-		SELECT id, clone_profile_id, related_character_id, content, embedding, importance, happened_at, created_at, updated_at
+		SELECT id, clone_profile_id, related_character_id, content, embedding, importance, emotional_weight, sentiment_label, happened_at, created_at, updated_at
 		FROM narrative_memories
 		WHERE clone_profile_id = $1
 		ORDER BY embedding <=> $2
@@ -73,7 +75,7 @@ func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, qu
 
 func (r *PgMemoryRepository) ListByCharacter(ctx context.Context, characterID uuid.UUID) ([]domain.NarrativeMemory, error) {
 	const query = `
-		SELECT id, clone_profile_id, related_character_id, content, embedding, importance, happened_at, created_at, updated_at
+		SELECT id, clone_profile_id, related_character_id, content, embedding, importance, emotional_weight, sentiment_label, happened_at, created_at, updated_at
 		FROM narrative_memories
 		WHERE related_character_id = $1
 		ORDER BY happened_at DESC
@@ -99,6 +101,8 @@ func scanMemories(rows pgxRows) ([]domain.NarrativeMemory, error) {
 			&m.Content,
 			&m.Embedding,
 			&m.Importance,
+			&m.EmotionalWeight,
+			&m.SentimentLabel,
 			&m.HappenedAt,
 			&m.CreatedAt,
 			&m.UpdatedAt,

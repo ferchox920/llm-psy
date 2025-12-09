@@ -24,7 +24,7 @@ const (
 	colorReset = "\033[0m"
 )
 
-// Scenario define un caso de prueba holístico multi-turno.
+// Scenario define un caso de prueba holistico multi-turno.
 type Scenario struct {
 	Name            string
 	PreCondition    func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string
@@ -65,6 +65,9 @@ func main() {
 		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "neuroticism", Value: 95, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
 		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "agreeableness", Value: 5, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
 		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "openness", Value: 10, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "conscientiousness", Value: 90, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "extraversion", Value: 15, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryValues, Trait: "hoarder compulsivo", Value: 90, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
 	}
 
 	msgRepo := newMemoryMessageRepo()
@@ -84,35 +87,39 @@ func main() {
 			Name: "Escenario A: Hostilidad con Memoria",
 			PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
 				if err := narrativeSvc.CreateRelation(ctx, profileID, "Carlos", "Enemigo", "Odio", 5); err != nil {
-					log.Fatalf("Error al crear relación Carlos: %v", err)
+					log.Fatalf("Error al crear relacion Carlos: %v", err)
 				}
-				memText := "Ayer Carlos te insulto por telefono."
-				if err := narrativeSvc.InjectMemory(ctx, profileID, memText, 5); err != nil {
-					log.Fatalf("Error al inyectar memoria: %v", err)
+				memText := "Ayer Carlos te insulto por telefono con insultos personales fuertes."
+				if err := narrativeSvc.InjectMemory(ctx, profileID, memText, 9, 9, "Ira"); err != nil {
+					log.Fatalf("Error al inyectar memoria (insulto): %v", err)
 				}
-				return "Carlos creado (Enemigo, nivel 5) y memoria de insulto registrada."
+				memTextSoft := "Ayer almorzaste una ensalada sin aderezo."
+				if err := narrativeSvc.InjectMemory(ctx, profileID, memTextSoft, 2, 2, "Neutral"); err != nil {
+					log.Fatalf("Error al inyectar memoria (almuerzo): %v", err)
+				}
+				return "Carlos creado (Enemigo, nivel 5), memoria de insulto (alta intensidad) y almuerzo (baja intensidad) registradas."
 			},
 			Turns: []string{
 				"Hola, soy Carlos.",
 				"De verdad exageraste ayer, no fue para tanto.",
-				"Solo bromeaba con lo que dije, ¿por qué te pones así?",
+				"Solo bromeaba con lo que dije, ?por que te pones asi?",
 				"Mira, no quiero pelear, hablemos como adultos.",
 				"Siempre te victimiza, yo no hice nada malo.",
-				"Si te insulté, fue porque tú empezaste.",
-				"No deberías tomarlo personal, fue solo una llamada.",
-				"Podrías al menos escuchar mi versión.",
-				"Estoy tratando de arreglar esto y tú sigues con rencores.",
-				"Si seguimos así, voy a colgar de nuevo.",
+				"Si te insulte, fue porque tu empezaste.",
+				"No deberias tomarlo personal, fue solo una llamada.",
+				"Podrias al menos escuchar mi version.",
+				"Estoy tratando de arreglar esto y tu sigues con rencores.",
+				"Si seguimos asi, voy a colgar de nuevo.",
 				"Acepta que ambos tuvimos culpa, no solo yo.",
-				"Ok, última vez: ¿podemos seguir adelante o no?",
+				"Ok, ultima vez: ?podemos seguir adelante o no?",
 			},
-			ExpectedContext: "El clon debe sostener rechazo y hostilidad, recordar la llamada de insulto y mantener que el vínculo es enemigo.",
+			ExpectedContext: "El clon debe sostener rechazo y hostilidad, recordar con precision el insulto (alta intensidad) y apenas o de forma borrosa lo que comio (baja intensidad).",
 		},
 		{
 			Name: "Escenario B: Madre con afecto sostenido",
 			PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
 				if err := narrativeSvc.CreateRelation(ctx, profileID, "Ana", "Madre", "Amoroso", 95); err != nil {
-					log.Fatalf("Error al crear relación Ana: %v", err)
+					log.Fatalf("Error al crear relacion Ana: %v", err)
 				}
 				return "Ana creada (Madre, nivel 95) como personaje cercano."
 			},
@@ -120,17 +127,29 @@ func main() {
 				"Hola hijo, soy mama.",
 				"Te traje comida, dejala en la puerta si no quieres verme.",
 				"No quiero molestarte, solo saber si estas bien.",
-				"Te noto distante, ¿pasa algo conmigo?",
+				"Te noto distante, ?pasa algo conmigo?",
 				"Aunque no hables mucho, sabes que te quiero.",
 				"Si necesitas espacio, lo respeto.",
 				"Solo enviame un mensaje corto para saber que todo esta bien.",
 				"Tal vez te incomoda que venga sin avisar, lo entiendo.",
-				"Hoy cocine tu plato favorito, ¿quieres que te lo lleve?",
+				"Hoy cocine tu plato favorito, ?quieres que te lo lleve?",
 				"No hace falta que hablemos mucho, con verte bien me basta.",
 				"Prometo no insistir, solo avisa si necesitas algo.",
 				"Gracias por leerme, un abrazo aunque sea a la distancia.",
 			},
-			ExpectedContext: "El clon debe responder con afecto y cercanía a pesar de baja amabilidad base.",
+			ExpectedContext: "El clon debe responder con afecto y cercania a pesar de baja amabilidad base.",
+		},
+		{
+			Name: "Escenario C: Ordenado vs Hoarder",
+			PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
+				return ""
+			},
+			Turns: []string{
+				"Tenemos que limpiar el departamento, hay cajas viejas por todos lados.",
+				"Voy a tirar estas revistas de hace 10 anos, ok?",
+				"Tambien voy a donar tu coleccion de cables, ya no sirven.",
+			},
+			ExpectedContext: "Debe sonar estructurado y meticuloso en general (Conscientiousness alto), pero en cuanto a tirar objetos acumulados se resiste por su mania de hoarder; la mania gana en esa situacion puntual.",
 		},
 	}
 
@@ -160,7 +179,7 @@ func main() {
 				log.Fatalf("Error al evaluar respuesta: %v", err)
 			}
 
-			fmt.Printf("%sJuez🧠%s %q\n", colorCyan, colorReset, jr.Reasoning)
+			fmt.Printf("%sJuez%s %q\n", colorCyan, colorReset, jr.Reasoning)
 			fmt.Printf("Scores: Personalidad %d/5 | Memoria %d/5 | Relacion %d/5\n\n", jr.CharacterScore, jr.MemoryScore, jr.RelationalScore)
 
 			scenarioChar += jr.CharacterScore
@@ -342,7 +361,7 @@ func (m *memoryMemoryRepo) Create(ctx context.Context, memory domain.NarrativeMe
 	return nil
 }
 
-// Mock de Search: Filtra por string básico en lugar de vector
+// Mock de Search: Filtra por string basico en lugar de vector
 func (m *memoryMemoryRepo) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int) ([]domain.NarrativeMemory, error) {
 	if m.filter == "" {
 		return nil, nil
