@@ -31,6 +31,24 @@ type Big5Profile struct {
 	Neuroticism       int `json:"neuroticism"`       // Estabilidad (Ya usado, ahora formalizado)
 }
 
+// GetResilience calcula la capacidad del clon para resistir trauma (0.0 a 1.0)
+func (p *CloneProfile) GetResilience() float64 {
+	// 1. Estabilidad Emocional (Lo opuesto al Neuroticismo) es el pilar.
+	stability := float64(100 - p.Big5.Neuroticism)
+
+	// 2. Consciencia (Capacidad de racionalizar) ayuda.
+	rationality := float64(p.Big5.Conscientiousness)
+
+	// 3. Extraversión (Energía hacia afuera) ayuda levemente.
+	energy := float64(p.Big5.Extraversion)
+
+	// Fórmula: 60% Estabilidad + 30% Racionalidad + 10% Energía
+	score := (stability * 0.6) + (rationality * 0.3) + (energy * 0.1)
+
+	// Normalizar a factor 0.0 - 1.0 (dividiendo por 100)
+	return score / 100.0
+}
+
 type Session struct {
 	ID           string              `json:"id"`
 	UserID       string              `json:"user_id"`
