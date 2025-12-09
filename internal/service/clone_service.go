@@ -78,12 +78,11 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 		}
 	}
 
-	prompt := s.buildClonePrompt(&profile, traits, contextText, narrativeText, userMessage)
-
 	// Analizar intensidad emocional y persistir recuerdo si aplica
 	emotionalIntensity := 10
 	emotionCategory := "NEUTRAL"
 	resilience := profile.GetResilience()
+	trivialInput := false
 	if s.analysisService != nil {
 		emo, err := s.analysisService.AnalyzeEmotion(ctx, userMessage)
 		if err != nil {
@@ -93,9 +92,12 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 			emotionCategory = emo.EmotionCategory
 		}
 	}
-	// Aplicar filtro de trauma segun resiliencia
+	// Aplicar amortiguacion por resiliencia y filtro de trauma
 	effectiveIntensity := emotionalIntensity
-	if isNegativeEmotion(emotionCategory) {
+	if emotionalIntensity < 30 && (isNegativeEmotion(emotionCategory) || isNeutralEmotion(emotionCategory)) {
+		effectiveIntensity = 0
+		trivialInput = true
+	} else if isNegativeEmotion(emotionCategory) {
 		if emotionalIntensity < 60 {
 			attenuation := 1.0 - (resilience * 0.7)
 			effectiveIntensity = int(math.Round(float64(emotionalIntensity) * attenuation))
@@ -118,6 +120,8 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 			log.Printf("warning: inject memory: %v", err)
 		}
 	}
+
+	prompt := s.buildClonePrompt(&profile, traits, contextText, narrativeText, userMessage, trivialInput)
 
 	responseRaw, err := s.llmClient.Generate(ctx, prompt)
 	if err != nil {
@@ -143,7 +147,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	return cloneMessage, nil
 }
 
-func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []domain.Trait, contextText, narrativeText, userMessage string) string {
+func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []domain.Trait, contextText, narrativeText, userMessage string, trivialInput bool) string {
 	var sb strings.Builder
 	resilience := profile.GetResilience()
 
@@ -224,6 +228,11 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 		sb.WriteString("\n")
 	}
 
+	if trivialInput {
+		sb.WriteString("=== FILTRO DE PERCEPCION ===\n")
+		sb.WriteString("El input del usuario es trivial. Responde con curiosidad casual o desinteres educado, pero NO seas hostil ni agresivo.\n\n")
+	}
+
 	sb.WriteString("\n=== MENSAJE DEL USUARIO ===\n")
 	sb.WriteString(fmt.Sprintf("%q\n\n", userMessage))
 	sb.WriteString("Responde como el personaje. Manten el estilo conversacional, natural y coherente con tus rasgos filtrados por el vinculo.")
@@ -268,4 +277,9 @@ func isNegativeEmotion(category string) bool {
 	default:
 		return false
 	}
+}
+
+func isNeutralEmotion(category string) bool {
+	cat := strings.ToLower(strings.TrimSpace(category))
+	return cat == "neutral" || cat == ""
 }
