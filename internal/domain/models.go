@@ -15,11 +15,20 @@ type User struct {
 }
 
 type CloneProfile struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Name      string    `json:"name"`
-	Bio       string    `json:"bio,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        string      `json:"id"`
+	UserID    string      `json:"user_id"`
+	Name      string      `json:"name"`
+	Bio       string      `json:"bio,omitempty"`
+	Big5      Big5Profile `json:"big5"`
+	CreatedAt time.Time   `json:"created_at"`
+}
+
+type Big5Profile struct {
+	Openness          int `json:"openness"`          // Creatividad vs. Pragmatismo
+	Conscientiousness int `json:"conscientiousness"` // Orden vs. Caos
+	Extraversion      int `json:"extraversion"`      // Energía social
+	Agreeableness     int `json:"agreeableness"`     // Amabilidad (Ya usado, ahora formalizado)
+	Neuroticism       int `json:"neuroticism"`       // Estabilidad (Ya usado, ahora formalizado)
 }
 
 type Session struct {
