@@ -72,7 +72,11 @@ func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, qu
 		SELECT id, clone_profile_id, related_character_id, content, embedding, importance, emotional_weight, emotional_intensity, emotion_category, sentiment_label, happened_at, created_at, updated_at
 		FROM narrative_memories
 		WHERE clone_profile_id = $1
-		ORDER BY embedding <=> $2
+		ORDER BY (
+			(1 - (embedding <=> $2)) -- similitud vectorial
+			+ (COALESCE(emotional_intensity, 10) * 0.002) -- refuerzo por carga emocional
+			- (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0 * 0.01) -- olvido por antiguedad (dias)
+		) DESC
 		LIMIT $3
 	`
 	rows, err := r.pool.Query(ctx, query, profileID, queryEmbedding, k)
