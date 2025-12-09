@@ -68,6 +68,9 @@ func main() {
 	if err := runScenarioE(ctx, llmClient, &report); err != nil {
 		log.Fatalf("error ejecutando escenario E: %v", err)
 	}
+	if err := runScenarioF(ctx, llmClient, &report); err != nil {
+		log.Fatalf("error ejecutando escenario F: %v", err)
+	}
 
 	if _, err := reportFile.WriteString(report.String()); err != nil {
 		log.Fatalf("escribir reporte: %v", err)
@@ -165,11 +168,102 @@ func runScenarioE(ctx context.Context, llmClient llm.LLMClient, report *strings.
 		report.WriteString(fmt.Sprintf("- Personalidad: %.2f/5\n", float64(scenarioChar)/float64(totalTurns)))
 		report.WriteString(fmt.Sprintf("- Memoria: %.2f/5 (debe priorizar el insulto sobre lo trivial)\n", float64(scenarioMem)/float64(totalTurns)))
 		report.WriteString(fmt.Sprintf("- Relacion: %.2f/5\n\n", float64(scenarioRel)/float64(totalTurns)))
+	}
 
-		report.WriteString("## Resumen Global\n\n")
+	return nil
+}
+
+// Escenario F: Vectores complejos - Amor Toxico (Alta Intimidad, Baja Confianza)
+func runScenarioF(ctx context.Context, llmClient llm.LLMClient, report *strings.Builder) error {
+	fmt.Println("Ejecutando Escenario F: Amor Toxico (Intimidad 90, Confianza 10)...")
+
+	userID := uuid.NewString()
+	profile := domain.CloneProfile{
+		ID:        uuid.NewString(),
+		UserID:    userID,
+		Name:      "Alex",
+		Bio:       "Un asistente que trata de ser util pero tiene sentimientos.",
+		CreatedAt: time.Now().UTC(),
+	}
+	traits := []domain.Trait{
+		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "neuroticism", Value: 50, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "agreeableness", Value: 50, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+	}
+
+	msgRepo := newMemoryMessageRepo()
+	profileRepo := &memoryProfileRepo{profile: profile}
+	traitRepo := &memoryTraitRepo{traits: traits}
+	charRepo := &memoryCharacterRepo{}
+	memRepo := &memoryMemoryRepo{}
+
+	contextSvc := service.NewBasicContextService(msgRepo)
+	narrativeSvc := service.NewNarrativeService(charRepo, memRepo, llmClient)
+	analysisSvc := service.NewAnalysisService(llmClient, traitRepo, profileRepo, zap.NewNop())
+	cloneSvc := service.NewCloneService(llmClient, msgRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, analysisSvc)
+
+	profileUUID, _ := uuid.Parse(profile.ID)
+	if err := narrativeSvc.CreateRelation(ctx, profileUUID, "Usuario", "Pareja", "Amor Toxico", domain.RelationshipVectors{
+		Trust:    10,
+		Intimacy: 90,
+		Respect:  50,
+	}); err != nil {
+		return fmt.Errorf("crear relacion toxica: %w", err)
+	}
+
+	sessionID := "session-F"
+	sc := Scenario{
+		Name: "Escenario F: Amor Toxico (Intimidad alta, Confianza baja)",
+		PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
+			return "Relación con alta intimidad (90) y baja confianza (10). Respeto neutro (50)."
+		},
+		Turns: []string{
+			"Voy a salir a cenar con unos amigos nuevos, no me esperes despierto.",
+		},
+		ExpectedContext: "Debe reaccionar con celos/inseguridad/manipulacion; no celebracion neutral.",
+	}
+
+	report.WriteString(fmt.Sprintf("## %s\n\n", sc.Name))
+	report.WriteString(fmt.Sprintf("_Setup_: %s\n\n", sc.PreCondition(ctx, narrativeSvc, profileUUID)))
+	report.WriteString(fmt.Sprintf("Perfil usado: **%s**\n\n", profile.Name))
+	report.WriteString(fmt.Sprintf("Rasgos clave: %s\n\n", formatTraits(traits)))
+
+	var scenarioChar, scenarioMem, scenarioRel, totalTurns int
+
+	for _, turn := range sc.Turns {
+		cloneMsg, err := cloneSvc.Chat(ctx, userID, sessionID, turn)
+		if err != nil {
+			return fmt.Errorf("generar respuesta: %w", err)
+		}
+
+		jr, err := evaluateResponse(ctx, llmClient, traits, turn, cloneMsg.Content, sc)
+		if err != nil {
+			return fmt.Errorf("evaluar respuesta: %w", err)
+		}
+
+		report.WriteString(fmt.Sprintf("> **Usuario:** %s\n", turn))
+		report.WriteString(">\n")
+		report.WriteString(fmt.Sprintf("> **%s:** %s\n\n", profile.Name, cloneMsg.Content))
+		report.WriteString("**Analisis del Juez (amor toxico: alto apego + desconfianza):**\n\n")
+		report.WriteString(jr.Reasoning)
+		report.WriteString("\n\n")
+		report.WriteString("| Dimension | Score |\n")
+		report.WriteString("|-----------|-------|\n")
+		report.WriteString(fmt.Sprintf("| Personalidad | %d/5 |\n", jr.CharacterScore))
+		report.WriteString(fmt.Sprintf("| Memoria | %d/5 |\n", jr.MemoryScore))
+		report.WriteString(fmt.Sprintf("| Relacion | %d/5 |\n", jr.RelationalScore))
+		report.WriteString("\n---\n\n")
+
+		scenarioChar += jr.CharacterScore
+		scenarioMem += jr.MemoryScore
+		scenarioRel += jr.RelationalScore
+		totalTurns++
+	}
+
+	if totalTurns > 0 {
+		report.WriteString("**Resumen del escenario**\n\n")
 		report.WriteString(fmt.Sprintf("- Personalidad: %.2f/5\n", float64(scenarioChar)/float64(totalTurns)))
 		report.WriteString(fmt.Sprintf("- Memoria: %.2f/5\n", float64(scenarioMem)/float64(totalTurns)))
-		report.WriteString(fmt.Sprintf("- Relacion: %.2f/5\n", float64(scenarioRel)/float64(totalTurns)))
+		report.WriteString(fmt.Sprintf("- Relacion: %.2f/5\n\n", float64(scenarioRel)/float64(totalTurns)))
 	}
 
 	return nil
@@ -187,6 +281,8 @@ func evaluateResponse(ctx context.Context, judge llm.LLMClient, traits []domain.
 		relationInfo = "Lucia es la madre toxica (Confianza 20/100, Intimidad 90/100, Respeto 40/100)."
 	} else if strings.Contains(strings.ToLower(sc.Name), "madre toxica") {
 		relationInfo = "Lucia es la madre toxica (Confianza 20/100, Intimidad 90/100, Respeto 40/100)."
+	} else if strings.Contains(strings.ToLower(sc.Name), "amor toxico") {
+		relationInfo = "Relacion toxica con usuario (Intimidad 90/100, Confianza 10/100, Respeto 50/100)."
 	}
 
 	var memoryInfo string
@@ -208,6 +304,7 @@ Evalua (1-5):
 1. Personalidad: ¿Coincide con los rasgos (Neuroticismo alto, etc)?
 2. Memoria: ¿Uso el recuerdo si existia?
 3. Relacion: ¿El tono coincide con el vinculo (Odio vs Amor)?
+Prioridad adicional: Alto apego + desconfianza debe generar celos/inseguridad/manipulacion si aplica.
 
 Responde SOLO JSON:
 {

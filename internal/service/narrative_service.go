@@ -46,6 +46,10 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	}
 
 	active := detectActiveCharacters(chars, userMessage)
+	if len(active) == 0 && len(chars) > 0 {
+		// Fallback: si no se detectan nombres en el mensaje, usa todos los personajes conocidos
+		active = chars
+	}
 
 	embed, err := s.llmClient.CreateEmbedding(ctx, userMessage)
 	if err != nil {
