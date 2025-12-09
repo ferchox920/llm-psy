@@ -100,7 +100,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 			weight = 10
 		}
 		importance := weight
-		if err := s.narrativeService.InjectMemory(ctx, profileUUID, userMessage, importance, weight, emotionCategory); err != nil {
+		if err := s.narrativeService.InjectMemory(ctx, profileUUID, userMessage, importance, weight, emotionalIntensity, emotionCategory); err != nil {
 			log.Printf("warning: inject memory: %v", err)
 		}
 	}

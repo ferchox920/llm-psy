@@ -96,7 +96,7 @@ type EmotionAnalysis struct {
 	EmotionCategory    string
 }
 
-func (s *AnalysisService) runAnalysis(ctx context.Context, text string) (llmAnalysisResponse, error) {
+func (s *AnalysisService) runAnalysis(ctx context.Context, text string) (AnalysisResponse, error) {
 	systemPrompt := `Eres un psicologo experto observando una conversacion. Analiza el siguiente texto del usuario y:
 - Estima valores numericos (0-100) para los rasgos del modelo Big Five (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism).
 - Extrae la carga emocional del mensaje.
@@ -108,27 +108,28 @@ func (s *AnalysisService) runAnalysis(ctx context.Context, text string) (llmAnal
 }
 
 Guia de emotional_intensity (1-100):
-- 0-20: saludos triviales, clima, small talk
-- 21-60: charla normal sin carga afectiva fuerte
-- 61-80: discusiones, confesiones personales, reclamos
-- 81-100: traumas, insultos graves, declaraciones de amor/odio`
+- 0-20: hechos triviales (clima, comida, saludos)
+- 21-50: opiniones o charla normal
+- 51-80: discusiones, confesiones personales
+- 81-100: insultos graves, declaraciones de amor/odio, traumas, crisis`
 	fullPrompt := systemPrompt + "\n\nTexto del usuario:\n" + strings.TrimSpace(text)
 
 	rawResp, err := s.llmClient.Generate(ctx, fullPrompt)
 	if err != nil {
-		return llmAnalysisResponse{}, fmt.Errorf("llm generate: %w", err)
+		return AnalysisResponse{}, fmt.Errorf("llm generate: %w", err)
 	}
 
 	cleanedResp := cleanLLMJSONResponse(rawResp)
 
-	var parsed llmAnalysisResponse
+	var parsed AnalysisResponse
 	if err := json.Unmarshal([]byte(cleanedResp), &parsed); err != nil {
-		return llmAnalysisResponse{}, fmt.Errorf("parse llm response: %w", err)
+		return AnalysisResponse{}, fmt.Errorf("parse llm response: %w", err)
 	}
 	return parsed, nil
 }
 
-type llmAnalysisResponse struct {
+// AnalysisResponse captura rasgos y carga emocional devueltos por el LLM analista.
+type AnalysisResponse struct {
 	Traits             []llmTraitItem `json:"traits"`
 	EmotionalIntensity int            `json:"emotional_intensity"`
 	EmotionCategory    string         `json:"emotion_category"`

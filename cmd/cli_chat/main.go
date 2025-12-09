@@ -270,7 +270,11 @@ func seedMemoryFlow(ctx context.Context, reader *bufio.Reader, profile domain.Cl
 		return fmt.Errorf("parse profile id: %w", err)
 	}
 
-	return narrativeSvc.InjectMemory(ctx, profileUUID, content, importance, emotionalWeight, sentimentLabel)
+	emotionalIntensity := emotionalWeight * 10
+	if emotionalIntensity < 1 {
+		emotionalIntensity = 10
+	}
+	return narrativeSvc.InjectMemory(ctx, profileUUID, content, importance, emotionalWeight, emotionalIntensity, sentimentLabel)
 }
 
 func readIntDefault(reader *bufio.Reader, prompt string, def int) int {

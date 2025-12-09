@@ -132,22 +132,27 @@ func (s *NarrativeService) CreateRelation(ctx context.Context, profileID uuid.UU
 }
 
 // InjectMemory genera el embedding y guarda una memoria narrativa.
-// emotionalWeight escala 1-10 para intensidad afectiva, sentimentLabel describe el tono (Ira, Alegria, Miedo, etc).
-func (s *NarrativeService) InjectMemory(ctx context.Context, profileID uuid.UUID, content string, importance, emotionalWeight int, sentimentLabel string) error {
+// emotionalWeight escala 1-10 para intensidad afectiva.
+func (s *NarrativeService) InjectMemory(ctx context.Context, profileID uuid.UUID, content string, importance, emotionalWeight, emotionalIntensity int, emotionCategory string) error {
 	embed, err := s.llmClient.CreateEmbedding(ctx, content)
 	if err != nil {
 		return fmt.Errorf("create embedding: %w", err)
 	}
 
 	now := time.Now().UTC()
-	intensity := emotionalWeight * 10
-	if intensity <= 0 {
-		intensity = 10
+	if emotionalWeight <= 0 {
+		emotionalWeight = 1
 	}
-	if intensity > 100 {
-		intensity = 100
+	if emotionalWeight > 10 {
+		emotionalWeight = 10
 	}
-	category := strings.TrimSpace(sentimentLabel)
+	if emotionalIntensity <= 0 {
+		emotionalIntensity = emotionalWeight * 10
+	}
+	if emotionalIntensity > 100 {
+		emotionalIntensity = 100
+	}
+	category := strings.TrimSpace(emotionCategory)
 	if category == "" {
 		category = "NEUTRAL"
 	}
@@ -158,9 +163,9 @@ func (s *NarrativeService) InjectMemory(ctx context.Context, profileID uuid.UUID
 		Embedding:          pgvector.NewVector(embed),
 		Importance:         importance,
 		EmotionalWeight:    emotionalWeight,
-		EmotionalIntensity: intensity,
+		EmotionalIntensity: emotionalIntensity,
 		EmotionCategory:    category,
-		SentimentLabel:     strings.TrimSpace(sentimentLabel),
+		SentimentLabel:     category,
 		HappenedAt:         now,
 		CreatedAt:          now,
 		UpdatedAt:          now,
