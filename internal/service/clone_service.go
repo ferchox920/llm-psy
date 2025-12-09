@@ -168,6 +168,7 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 	sb.WriteString("   - DEBES hacer una referencia explicita al recuerdo para demostrar que lo sabes (ej: \"Despues de lo que me dijiste ayer...\", \"Aun me acuerdo de X...\").\n")
 	sb.WriteString("   - Si el recuerdo contradice lo que el usuario dice ahora, confia en TU memoria y confrontalo.\n")
 	sb.WriteString("   - Si el recuerdo es antiguo y de baja intensidad, puedes mostrar dudas o \"memoria borrosa\". Si es de alta intensidad, citado con precision dolorosa, sin suavizar.\n")
+	sb.WriteString("   - LEY DE RESONANCIA EMOCIONAL: Si hay recuerdos de ALTO IMPACTO en tu contexto activo, tu tono base debe verse tienido por ellos (dolor, rencor, euforia o miedo), incluso si el usuario habla de temas triviales ahora. No ignores el \"elefante en la habitacion\": si hay un conflicto de alta intensidad no resuelto, priorizalo sobre charla casual.\n")
 	sb.WriteString("3. PENSAMIENTO OCULTO (antes de responder):\n")
 	sb.WriteString("   - Genera un bloque <inner_monologue> ... </inner_monologue> donde analices la intencion del usuario, revises tu memoria y decidas tu estrategia emocional segun tus rasgos.\n")
 	sb.WriteString("   - Evalua el estado del vinculo actual y decide si debes mentir, ser honesto o manipular.\n")

@@ -65,32 +65,32 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		var recents []string
 		for _, m := range memories {
 			relative := humanizeRelative(m.HappenedAt)
-			weight := m.EmotionalWeight
-			if weight <= 0 {
-				weight = m.Importance
+			intensity := m.EmotionalIntensity
+			if intensity <= 0 {
+				intensity = m.EmotionalWeight * 10
 			}
-			if weight < 1 {
-				weight = 1
+			if intensity < 1 {
+				intensity = 10
 			}
-			if weight > 10 {
-				weight = 10
+			if intensity > 100 {
+				intensity = 100
 			}
-			label := strings.TrimSpace(m.SentimentLabel)
+			label := strings.TrimSpace(m.EmotionCategory)
 			if label == "" {
 				label = "Neutral"
 			}
-			line := fmt.Sprintf("- (%s | peso emocional %d/10 | %s): %s", relative, weight, label, strings.TrimSpace(m.Content))
-			if weight >= 8 {
+			line := fmt.Sprintf("- [%s: %d] (%s) %s", strings.ToUpper(label), intensity, relative, strings.TrimSpace(m.Content))
+			if intensity > 70 {
 				traumas = append(traumas, line)
 			} else {
 				recents = append(recents, line)
 			}
 		}
 		if len(traumas) > 0 {
-			sections = append(sections, "=== TRAUMAS Y HECHOS CENTRALES (Inolvidables) ===\n"+strings.Join(traumas, "\n"))
+			sections = append(sections, "=== MEMORIAS DE ALTO IMPACTO EMOCIONAL (INTENSIDAD > 70) ===\n"+strings.Join(traumas, "\n"))
 		}
 		if len(recents) > 0 {
-			sections = append(sections, "=== EVENTOS RECIENTES (Contexto temporal) ===\n"+strings.Join(recents, "\n"))
+			sections = append(sections, "=== CONTEXTO RECIENTE (INTENSIDAD BAJA/MEDIA) ===\n"+strings.Join(recents, "\n"))
 		}
 	}
 
