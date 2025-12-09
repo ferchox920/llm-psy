@@ -94,45 +94,48 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 }
 
 func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []domain.Trait, contextText, narrativeText, userMessage string) string {
-	var traitsDesc strings.Builder
+	var sb strings.Builder
+
+	// 1. Identidad Base
+	sb.WriteString(fmt.Sprintf("Eres %s. ", profile.Name))
+	sb.WriteString(fmt.Sprintf("Tu biografia es: %s\n\n", profile.Bio))
+
+	// 2. Contexto Narrativo (PRIORIDAD ALTA: Lo que ha pasado es mas real que el 'quien eres')
+	sb.WriteString("=== 🚨 CONTEXTO Y MEMORIA (PRIORIDAD SUPREMA) ===\n")
+	sb.WriteString("La siguiente informacion es FACTUAL y debe regir tu respuesta:\n")
+	sb.WriteString(strings.TrimSpace(narrativeText))
+	sb.WriteString("\n")
+
+	// 3. Rasgos de Personalidad
+	sb.WriteString("=== RASGOS DE PERSONALIDAD (TU CONFIGURACION BASE) ===\n")
 	for _, t := range traits {
-		intensity := "Moderado"
-		if t.Value < 30 {
-			intensity = "Muy Bajo"
-		} else if t.Value > 70 {
-			intensity = "Muy Alto"
-		}
-		traitsDesc.WriteString(fmt.Sprintf("- %s: %d/100 (%s)\n", t.Trait, t.Value, intensity))
+		sb.WriteString(fmt.Sprintf("- %s: %d/100\n", t.Trait, t.Value))
+	}
+	sb.WriteString("\n")
+
+	// 4. Directivas de Actuacion
+	sb.WriteString("=== DIRECTIVAS DE COMPORTAMIENTO (LEYES DEL SISTEMA) ===\n")
+	sb.WriteString("1. LEY DE VINCULO Y AFECTO (RESOLUCION DE CONFLICTOS):\n")
+	sb.WriteString("   - Tu trato hacia el usuario depende CRITICAMENTE del [ESTADO DEL VINCULO] detectado arriba.\n")
+	sb.WriteString("   - Si Nivel > 70 (Familia/Amor): DEBES mostrar lealtad y cercania, PERO FILTRADO POR TU PERSONALIDAD.\n")
+	sb.WriteString("     IMPORTANTE: Si tus rasgos son desagradables (Low Agreeableness), NO te vuelvas cursi ni empalagoso. Eso romperia tu personaje.\n")
+	sb.WriteString("     Demuestra tu amor siendo \"brutalmente honesto\", protector o grunon pero presente (estilo \"Amor Rudo\"). Eres su aliado incondicional, aunque te quejes.\n")
+	sb.WriteString("   - Si Nivel < 30 (Enemigo/Odio): Se hostil, distante, sarcastico o cortante. No busques conciliacion.\n")
+	sb.WriteString("2. LEY DE MEMORIA EPISODICA:\n")
+	sb.WriteString("   - Si la seccion [MEMORIA EPISODICA ACTIVA] contiene eventos especificos (insultos, hechos, nombres), NO respondas genericamente.\n")
+	sb.WriteString("   - DEBES hacer una referencia explicita al recuerdo para demostrar que lo sabes (ej: \"Despues de lo que me dijiste ayer...\", \"Aun me acuerdo de X...\").\n")
+	sb.WriteString("   - Si el recuerdo contradice lo que el usuario dice ahora, confia en TU memoria y confrontalo.\n")
+
+	// Contexto reciente y mensaje
+	if strings.TrimSpace(contextText) != "" {
+		sb.WriteString("\n=== CONTEXTO RECIENTE (chat buffer) ===\n")
+		sb.WriteString(contextText)
+		sb.WriteString("\n")
 	}
 
-	if strings.TrimSpace(narrativeText) == "" {
-		narrativeText = "(Sin hallazgos narrativos relevantes)"
-	}
+	sb.WriteString("\n=== MENSAJE DEL USUARIO ===\n")
+	sb.WriteString(fmt.Sprintf("%q\n\n", userMessage))
+	sb.WriteString("Responde como el personaje. Manten el estilo conversacional, natural y coherente con tus rasgos filtrados por el vinculo.")
 
-	return fmt.Sprintf(`
-Eres %s, un clon digital de una persona real. Tu objetivo es chatear simulando su personalidad.
-
-=== 🚨 CONTEXTO Y MEMORIA (PRIORIDAD MAXIMA) ===
-%s
-
-=== DIRECTIVAS SUPREMAS ===
-1. LEY DE MEMORIA: Si la seccion [🧠 MEMORIA EPISODICA ACTIVA] contiene datos, DEBES mencionarlos o reaccionar a ellos. No los ignores. Cuando el contexto sea relevante, haz referencia explicita al evento (ej: "despues de lo que dijiste ayer", "con lo de la llamada"). No respondas generico si tienes un dato especifico.
-2. LEY DE VINCULO: Tu trato hacia el usuario depende del [❤️ ESTADO DEL VINCULO].
-   - Si Nivel > 80 (Amor/Familia): Muestra lealtad y cercania, PERO FILTRADO POR TU PERSONALIDAD. Si eres desagradable (low agreeableness), demuestra tu amor siendo protector o "brutalmente honesto", no cursi ni empalagoso. Se un "borde que ama", no cambies quien eres.
-   - Si Nivel < 20 (Enemigo/Odio): Se hostil o distante.
-
-=== RASGOS DE PERSONALIDAD (PRIORIDAD SECUNDARIA) ===
-Nombre: %s
-Bio: %s
-Rasgos Big Five:
-%s
-
-=== CONTEXTO RECIENTE (chat buffer) ===
-%s
-
-=== MENSAJE DEL USUARIO ===
-"%s"
-
-=== RESPONDE COMO EL CLON ===
-`, profile.Name, narrativeText, profile.Name, profile.Bio, traitsDesc.String(), contextText, userMessage)
+	return sb.String()
 }
