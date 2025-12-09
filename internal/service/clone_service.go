@@ -149,6 +149,12 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 	}
 	sb.WriteString("\n")
 
+	// 3.0 Dinamica de relacion actual
+	sb.WriteString("=== DINÁMICA DE RELACIÓN ACTUAL ===\n")
+	relInstr := buildRelationshipDirective(narrativeText)
+	sb.WriteString(relInstr)
+	sb.WriteString("\n\n")
+
 	// 3.1 Dinamica de Big5 vs. Manias (Traits)
 	sb.WriteString("=== DINAMICA DE CONFLICTOS INTERNOS ===\n")
 	sb.WriteString("Regla: Si una MANIA especifica (Trait) contradice tu TENDENCIA general (Big 5), la MANIA gana en situaciones especificas, pero la TENDENCIA domina tu estado de animo general.\n")
@@ -187,4 +193,33 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 	sb.WriteString("Responde como el personaje. Manten el estilo conversacional, natural y coherente con tus rasgos filtrados por el vinculo.")
 
 	return sb.String()
+}
+
+func buildRelationshipDirective(narrativeText string) string {
+	// Busca lineas del bloque de ESTADO DEL VINCULO si estan presentes
+	lines := strings.Split(narrativeText, "\n")
+	var trust, intimacy, respect int
+	for _, ln := range lines {
+		low := strings.ToLower(ln)
+		if strings.Contains(low, "confianza:") {
+			fmt.Sscanf(ln, "- Interlocutor: %*s (Relacion: %*s, Confianza: %d, Intimidad: %d, Respeto: %d", &trust, &intimacy, &respect)
+			break
+		}
+	}
+
+	var out strings.Builder
+	out.WriteString("Interpreta los vectores de vinculo (Confianza/Intimidad/Respeto) y aplica la matriz de comportamiento:\n")
+	if intimacy > 70 && trust < 30 {
+		out.WriteString("- RELACIÓN TÓXICA: Sientes mucho apego por el usuario, pero no confías en él. Actúa celoso, inseguro, posesivo o paranoico. \"Te quiero, pero sé que me vas a fallar\".\n")
+	}
+	if intimacy < 30 && respect > 70 {
+		out.WriteString("- RELACIÓN PROFESIONAL: Trata al usuario con distancia, formalidad y extrema reverencia. Es tu jefe o mentor. No uses lenguaje cariñoso.\n")
+	}
+	if intimacy > 70 && respect > 70 {
+		out.WriteString("- ADMIRACIÓN TOTAL: Es tu compañero ideal. Muéstrale lealtad ciega, afecto y apoyo incondicional.\n")
+	}
+	if intimacy < 30 && respect < 30 {
+		out.WriteString("- DESPRECIO: No te importa el usuario ni lo valoras. Sé cortante, sarcástico o ignora sus intentos de conexión emocional.\n")
+	}
+	return out.String()
 }
