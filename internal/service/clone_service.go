@@ -83,6 +83,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	// Analizar intensidad emocional y persistir recuerdo si aplica
 	emotionalIntensity := 10
 	emotionCategory := "NEUTRAL"
+	resilience := profile.GetResilience()
 	if s.analysisService != nil {
 		emo, err := s.analysisService.AnalyzeEmotion(ctx, userMessage)
 		if err != nil {
@@ -94,10 +95,14 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	}
 	// Aplicar filtro de trauma segun resiliencia
 	effectiveIntensity := emotionalIntensity
-	if emotionalIntensity > 50 && isNegativeEmotion(emotionCategory) {
-		r := profile.GetResilience()
-		attenuation := 1.0 - (r * 0.5) // nunca inmune
-		effectiveIntensity = int(math.Round(float64(emotionalIntensity) * attenuation))
+	if isNegativeEmotion(emotionCategory) {
+		if emotionalIntensity < 60 {
+			attenuation := 1.0 - (resilience * 0.7)
+			effectiveIntensity = int(math.Round(float64(emotionalIntensity) * attenuation))
+		} else if emotionalIntensity > 50 {
+			attenuation := 1.0 - (resilience * 0.5) // nunca inmune
+			effectiveIntensity = int(math.Round(float64(emotionalIntensity) * attenuation))
+		}
 	}
 
 	if s.narrativeService != nil && parseErr == nil {
