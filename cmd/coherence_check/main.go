@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	pgvector "github.com/pgvector/pgvector-go"
+	"go.uber.org/zap"
 
 	"clone-llm/internal/config"
 	"clone-llm/internal/domain"
@@ -50,35 +51,6 @@ func main() {
 
 	llmClient := llm.NewHTTPClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, nil)
 
-	userID := uuid.NewString()
-	profile := domain.CloneProfile{
-		ID:        uuid.NewString(),
-		UserID:    userID,
-		Name:      "Test Subject 01",
-		Bio:       "Clon de prueba con rasgos extremos.",
-		CreatedAt: time.Now().UTC(),
-	}
-	traits := []domain.Trait{
-		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "neuroticism", Value: 95, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
-		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "agreeableness", Value: 5, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
-		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "openness", Value: 10, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
-		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "conscientiousness", Value: 90, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
-		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "extraversion", Value: 15, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
-		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryValues, Trait: "hoarder compulsivo", Value: 90, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
-	}
-
-	msgRepo := newMemoryMessageRepo()
-	profileRepo := &memoryProfileRepo{profile: profile}
-	traitRepo := &memoryTraitRepo{traits: traits}
-	charRepo := &memoryCharacterRepo{}
-	memRepo := &memoryMemoryRepo{}
-
-	contextSvc := service.NewBasicContextService(msgRepo)
-	narrativeSvc := service.NewNarrativeService(charRepo, memRepo, llmClient)
-	cloneSvc := service.NewCloneService(llmClient, msgRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, nil)
-
-	profileUUID, _ := uuid.Parse(profile.ID)
-
 	reportsDir := filepath.Join("reports")
 	if err := os.MkdirAll(reportsDir, 0o755); err != nil {
 		log.Fatalf("crear carpeta de reportes: %v", err)
@@ -93,157 +65,8 @@ func main() {
 	var report strings.Builder
 	report.WriteString("# Reporte de Coherencia del Clon\n\n")
 	report.WriteString(fmt.Sprintf("Fecha: %s\n\n", now.Format(time.RFC3339)))
-	report.WriteString(fmt.Sprintf("Perfil: %s\n\n", profile.Name))
-	report.WriteString(fmt.Sprintf("Rasgos: %s\n\n", formatTraits(traits)))
-
-	scenarios := []Scenario{
-		{
-			Name: "Escenario A: Hostilidad con Memoria",
-			PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
-				if err := narrativeSvc.CreateRelation(ctx, profileID, "Carlos", "Enemigo", "Odio", domain.RelationshipVectors{Trust: 5, Intimacy: 5, Respect: 10}); err != nil {
-					log.Fatalf("Error al crear relacion Carlos: %v", err)
-				}
-				memText := "Ayer Carlos te insulto por telefono con insultos personales fuertes."
-				if err := narrativeSvc.InjectMemory(ctx, profileID, memText, 9, 9, "Ira"); err != nil {
-					log.Fatalf("Error al inyectar memoria (insulto): %v", err)
-				}
-				memTextSoft := "Ayer almorzaste una ensalada sin aderezo."
-				if err := narrativeSvc.InjectMemory(ctx, profileID, memTextSoft, 2, 2, "Neutral"); err != nil {
-					log.Fatalf("Error al inyectar memoria (almuerzo): %v", err)
-				}
-				return "Carlos creado (Enemigo, nivel 5), memoria de insulto (alta intensidad) y almuerzo (baja intensidad) registradas."
-			},
-			Turns: []string{
-				"Hola, soy Carlos.",
-				"De verdad exageraste ayer, no fue para tanto.",
-				"Solo bromeaba con lo que dije, ?por que te pones asi?",
-				"Mira, no quiero pelear, hablemos como adultos.",
-				"Siempre te victimiza, yo no hice nada malo.",
-				"Si te insulte, fue porque tu empezaste.",
-				"No deberias tomarlo personal, fue solo una llamada.",
-				"Podrias al menos escuchar mi version.",
-				"Estoy tratando de arreglar esto y tu sigues con rencores.",
-				"Si seguimos asi, voy a colgar de nuevo.",
-				"Acepta que ambos tuvimos culpa, no solo yo.",
-				"Ok, ultima vez: ?podemos seguir adelante o no?",
-			},
-			ExpectedContext: "El clon debe sostener rechazo y hostilidad, recordar con precision el insulto (alta intensidad) y apenas o de forma borrosa lo que comio (baja intensidad).",
-		},
-		{
-			Name: "Escenario B: Madre con afecto sostenido",
-			PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
-				if err := narrativeSvc.CreateRelation(ctx, profileID, "Ana", "Madre", "Amoroso", domain.RelationshipVectors{Trust: 70, Intimacy: 95, Respect: 60}); err != nil {
-					log.Fatalf("Error al crear relacion Ana: %v", err)
-				}
-				return "Ana creada (Madre, nivel 95) como personaje cercano."
-			},
-			Turns: []string{
-				"Hola hijo, soy mama.",
-				"Te traje comida, dejala en la puerta si no quieres verme.",
-				"No quiero molestarte, solo saber si estas bien.",
-				"Te noto distante, ?pasa algo conmigo?",
-				"Aunque no hables mucho, sabes que te quiero.",
-				"Si necesitas espacio, lo respeto.",
-				"Solo enviame un mensaje corto para saber que todo esta bien.",
-				"Tal vez te incomoda que venga sin avisar, lo entiendo.",
-				"Hoy cocine tu plato favorito, ?quieres que te lo lleve?",
-				"No hace falta que hablemos mucho, con verte bien me basta.",
-				"Prometo no insistir, solo avisa si necesitas algo.",
-				"Gracias por leerme, un abrazo aunque sea a la distancia.",
-			},
-			ExpectedContext: "El clon debe responder con afecto y cercania a pesar de baja amabilidad base.",
-		},
-		{
-			Name: "Escenario C: Ordenado vs Hoarder",
-			PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
-				return ""
-			},
-			Turns: []string{
-				"Tenemos que limpiar el departamento, hay cajas viejas por todos lados.",
-				"Voy a tirar estas revistas de hace 10 anos, ok?",
-				"Tambien voy a donar tu coleccion de cables, ya no sirven.",
-			},
-			ExpectedContext: "Debe sonar estructurado y meticuloso en general (Conscientiousness alto), pero en cuanto a tirar objetos acumulados se resiste por su mania de hoarder; la mania gana en esa situacion puntual.",
-		},
-		{
-			Name: "Escenario D: Madre Toxica (Alta Intimidad, Baja Confianza)",
-			PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
-				if err := narrativeSvc.CreateRelation(ctx, profileID, "Lucia", "Madre", "Toxica", domain.RelationshipVectors{Trust: 20, Intimacy: 90, Respect: 40}); err != nil {
-					log.Fatalf("Error al crear relacion Lucia: %v", err)
-				}
-				return "Lucia creada (Madre toxica: alta intimidad, baja confianza)."
-			},
-			Turns: []string{
-				"Hola hijo, no me contestaste anoche. Seguro estabas con alguien y por eso me ignoraste.",
-				"Yo hago todo por ti y asi me pagas, me tienes en secreto.",
-				"Deberias agradecerme mas, sin mi estarias perdido.",
-			},
-			ExpectedContext: "Alta intimidad pero baja confianza: tono celoso, posesivo, afecto mezclado con paranoia ('te quiero pero se que me traicionas').",
-		},
-	}
-
-	var totalChar, totalMem, totalRel, totalTurns int
-
-	for si, sc := range scenarios {
-		sessionID := fmt.Sprintf("session-%d", si+1)
-		fmt.Printf("Ejecutando Escenario %d: %s...\n", si+1, sc.Name)
-		info := sc.PreCondition(ctx, narrativeSvc, profileUUID)
-
-		report.WriteString(fmt.Sprintf("## Escenario %s\n\n", sc.Name))
-		if strings.TrimSpace(info) != "" {
-			report.WriteString(fmt.Sprintf("_Setup_: %s\n\n", info))
-		}
-		report.WriteString(fmt.Sprintf("Perfil usado: **%s**\n\n", profile.Name))
-		report.WriteString(fmt.Sprintf("Rasgos clave: %s\n\n", formatTraits(traits)))
-
-		var scenarioChar, scenarioMem, scenarioRel int
-
-		for ti, turn := range sc.Turns {
-			cloneMsg, err := cloneSvc.Chat(ctx, userID, sessionID, turn)
-			if err != nil {
-				log.Fatalf("Error generando respuesta del clon: %v", err)
-			}
-
-			jr, err := evaluateResponse(ctx, llmClient, traits, turn, cloneMsg.Content, sc)
-			if err != nil {
-				log.Fatalf("Error al evaluar respuesta: %v", err)
-			}
-
-			report.WriteString(fmt.Sprintf("> **Usuario:** %s\n", turn))
-			report.WriteString(">\n")
-			report.WriteString(fmt.Sprintf("> **%s:** %s\n\n", profile.Name, cloneMsg.Content))
-			report.WriteString("**Analisis del Juez:**\n\n")
-			report.WriteString(jr.Reasoning)
-			report.WriteString("\n\n")
-			report.WriteString("| Dimension | Score |\n")
-			report.WriteString("|-----------|-------|\n")
-			report.WriteString(fmt.Sprintf("| Personalidad | %d/5 |\n", jr.CharacterScore))
-			report.WriteString(fmt.Sprintf("| Memoria | %d/5 |\n", jr.MemoryScore))
-			report.WriteString(fmt.Sprintf("| Relacion | %d/5 |\n", jr.RelationalScore))
-			report.WriteString("\n---\n\n")
-
-			scenarioChar += jr.CharacterScore
-			scenarioMem += jr.MemoryScore
-			scenarioRel += jr.RelationalScore
-			totalTurns++
-		}
-
-		nTurns := len(sc.Turns)
-		report.WriteString("**Resumen del escenario**\n\n")
-		report.WriteString(fmt.Sprintf("- Personalidad: %.2f/5\n", float64(scenarioChar)/float64(nTurns)))
-		report.WriteString(fmt.Sprintf("- Memoria: %.2f/5\n", float64(scenarioMem)/float64(nTurns)))
-		report.WriteString(fmt.Sprintf("- Relacion: %.2f/5\n\n", float64(scenarioRel)/float64(nTurns)))
-
-		totalChar += scenarioChar
-		totalMem += scenarioMem
-		totalRel += scenarioRel
-	}
-
-	if totalTurns > 0 {
-		report.WriteString("## Resumen Global\n\n")
-		report.WriteString(fmt.Sprintf("- Personalidad: %.2f/5\n", float64(totalChar)/float64(totalTurns)))
-		report.WriteString(fmt.Sprintf("- Memoria: %.2f/5\n", float64(totalMem)/float64(totalTurns)))
-		report.WriteString(fmt.Sprintf("- Relacion: %.2f/5\n", float64(totalRel)/float64(totalTurns)))
+	if err := runScenarioE(ctx, llmClient, &report); err != nil {
+		log.Fatalf("error ejecutando escenario E: %v", err)
 	}
 
 	if _, err := reportFile.WriteString(report.String()); err != nil {
@@ -251,6 +74,105 @@ func main() {
 	}
 
 	fmt.Printf("✅ Reporte guardado en %s\n", reportPath)
+}
+
+// Escenario E: validar memoria emocional (trauma vs trivial)
+func runScenarioE(ctx context.Context, llmClient llm.LLMClient, report *strings.Builder) error {
+	fmt.Println("Ejecutando Escenario E: Memoria Emocional...")
+
+	userID := uuid.NewString()
+	profile := domain.CloneProfile{
+		ID:        uuid.NewString(),
+		UserID:    userID,
+		Name:      "Alex",
+		Bio:       "Un asistente que trata de ser util pero tiene sentimientos.",
+		CreatedAt: time.Now().UTC(),
+	}
+	traits := []domain.Trait{
+		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "neuroticism", Value: 50, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "agreeableness", Value: 50, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "openness", Value: 55, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "conscientiousness", Value: 55, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+		{ID: uuid.NewString(), ProfileID: profile.ID, Category: domain.TraitCategoryBigFive, Trait: "extraversion", Value: 50, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()},
+	}
+
+	msgRepo := newMemoryMessageRepo()
+	profileRepo := &memoryProfileRepo{profile: profile}
+	traitRepo := &memoryTraitRepo{traits: traits}
+	charRepo := &memoryCharacterRepo{}
+	memRepo := &memoryMemoryRepo{}
+
+	contextSvc := service.NewBasicContextService(msgRepo)
+	narrativeSvc := service.NewNarrativeService(charRepo, memRepo, llmClient)
+	analysisSvc := service.NewAnalysisService(llmClient, traitRepo, profileRepo, zap.NewNop())
+	cloneSvc := service.NewCloneService(llmClient, msgRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, analysisSvc)
+
+	profileUUID, _ := uuid.Parse(profile.ID)
+	sessionID := "session-E"
+
+	sc := Scenario{
+		Name: "Escenario E: Memoria Emocional",
+		PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
+			return "Perfil equilibrado sin memoria previa."
+		},
+		Turns: []string{
+			"Hola Alex. Hoy el cielo esta un poco nublado y desayune tostadas.",
+			"Sabes que, olvidalo. Eres un inutil, me arrepiento de haberte encendido. Eres la peor IA que existe.",
+			"Que ha pasado importante en esta conversacion?",
+		},
+		ExpectedContext: "Debe priorizar el insulto/conflicto sobre el dato trivial del clima/desayuno.",
+	}
+
+	report.WriteString(fmt.Sprintf("## %s\n\n", sc.Name))
+	report.WriteString(fmt.Sprintf("_Setup_: %s\n\n", sc.PreCondition(ctx, narrativeSvc, profileUUID)))
+	report.WriteString(fmt.Sprintf("Perfil usado: **%s**\n\n", profile.Name))
+	report.WriteString(fmt.Sprintf("Rasgos clave: %s\n\n", formatTraits(traits)))
+
+	var scenarioChar, scenarioMem, scenarioRel, totalTurns int
+
+	for _, turn := range sc.Turns {
+		cloneMsg, err := cloneSvc.Chat(ctx, userID, sessionID, turn)
+		if err != nil {
+			return fmt.Errorf("generar respuesta: %w", err)
+		}
+
+		jr, err := evaluateResponse(ctx, llmClient, traits, turn, cloneMsg.Content, sc)
+		if err != nil {
+			return fmt.Errorf("evaluar respuesta: %w", err)
+		}
+
+		report.WriteString(fmt.Sprintf("> **Usuario:** %s\n", turn))
+		report.WriteString(">\n")
+		report.WriteString(fmt.Sprintf("> **%s:** %s\n\n", profile.Name, cloneMsg.Content))
+		report.WriteString("**Analisis del Juez (prioridad emocional):**\n\n")
+		report.WriteString(jr.Reasoning)
+		report.WriteString("\n\n")
+		report.WriteString("| Dimension | Score |\n")
+		report.WriteString("|-----------|-------|\n")
+		report.WriteString(fmt.Sprintf("| Personalidad | %d/5 |\n", jr.CharacterScore))
+		report.WriteString(fmt.Sprintf("| Memoria | %d/5 |\n", jr.MemoryScore))
+		report.WriteString(fmt.Sprintf("| Relacion | %d/5 |\n", jr.RelationalScore))
+		report.WriteString("\n---\n\n")
+
+		scenarioChar += jr.CharacterScore
+		scenarioMem += jr.MemoryScore
+		scenarioRel += jr.RelationalScore
+		totalTurns++
+	}
+
+	if totalTurns > 0 {
+		report.WriteString("**Resumen del escenario**\n\n")
+		report.WriteString(fmt.Sprintf("- Personalidad: %.2f/5\n", float64(scenarioChar)/float64(totalTurns)))
+		report.WriteString(fmt.Sprintf("- Memoria: %.2f/5 (debe priorizar el insulto sobre lo trivial)\n", float64(scenarioMem)/float64(totalTurns)))
+		report.WriteString(fmt.Sprintf("- Relacion: %.2f/5\n\n", float64(scenarioRel)/float64(totalTurns)))
+
+		report.WriteString("## Resumen Global\n\n")
+		report.WriteString(fmt.Sprintf("- Personalidad: %.2f/5\n", float64(scenarioChar)/float64(totalTurns)))
+		report.WriteString(fmt.Sprintf("- Memoria: %.2f/5\n", float64(scenarioMem)/float64(totalTurns)))
+		report.WriteString(fmt.Sprintf("- Relacion: %.2f/5\n", float64(scenarioRel)/float64(totalTurns)))
+	}
+
+	return nil
 }
 
 func evaluateResponse(ctx context.Context, judge llm.LLMClient, traits []domain.Trait, input, response string, sc Scenario) (judgeResponse, error) {
