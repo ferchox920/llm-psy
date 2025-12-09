@@ -25,14 +25,17 @@ func NewPgSessionRepository(pool *pgxpool.Pool) *PgSessionRepository {
 
 func (r *PgSessionRepository) Create(ctx context.Context, session domain.Session) error {
 	const query = `
-		INSERT INTO sessions (id, user_id, token, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO sessions (id, user_id, token, expires_at, trust_level, intimacy_level, respect_level, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 	_, err := r.pool.Exec(ctx, query,
 		session.ID,
 		session.UserID,
 		session.Token,
 		session.ExpiresAt,
+		session.Relationship.Trust,
+		session.Relationship.Intimacy,
+		session.Relationship.Respect,
 		session.CreatedAt,
 	)
 	return err
@@ -40,7 +43,7 @@ func (r *PgSessionRepository) Create(ctx context.Context, session domain.Session
 
 func (r *PgSessionRepository) GetByID(ctx context.Context, id string) (domain.Session, error) {
 	const query = `
-		SELECT id, user_id, token, expires_at, created_at
+		SELECT id, user_id, token, expires_at, trust_level, intimacy_level, respect_level, created_at
 		FROM sessions
 		WHERE id = $1
 	`
@@ -50,6 +53,9 @@ func (r *PgSessionRepository) GetByID(ctx context.Context, id string) (domain.Se
 		&session.UserID,
 		&session.Token,
 		&session.ExpiresAt,
+		&session.Relationship.Trust,
+		&session.Relationship.Intimacy,
+		&session.Relationship.Respect,
 		&session.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -32,11 +32,12 @@ type Big5Profile struct {
 }
 
 type Session struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Token     string    `json:"token"`
-	ExpiresAt time.Time `json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           string              `json:"id"`
+	UserID       string              `json:"user_id"`
+	Token        string              `json:"token"`
+	ExpiresAt    time.Time           `json:"expires_at"`
+	Relationship RelationshipVectors `json:"relationship"`
+	CreatedAt    time.Time           `json:"created_at"`
 }
 
 type Message struct {
