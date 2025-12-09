@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -91,8 +92,16 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 			emotionCategory = emo.EmotionCategory
 		}
 	}
+	// Aplicar filtro de trauma segun resiliencia
+	effectiveIntensity := emotionalIntensity
+	if emotionalIntensity > 50 && isNegativeEmotion(emotionCategory) {
+		r := profile.GetResilience()
+		attenuation := 1.0 - (r * 0.5) // nunca inmune
+		effectiveIntensity = int(math.Round(float64(emotionalIntensity) * attenuation))
+	}
+
 	if s.narrativeService != nil && parseErr == nil {
-		weight := (emotionalIntensity + 9) / 10
+		weight := (effectiveIntensity + 9) / 10
 		if weight < 1 {
 			weight = 1
 		}
@@ -100,7 +109,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 			weight = 10
 		}
 		importance := weight
-		if err := s.narrativeService.InjectMemory(ctx, profileUUID, userMessage, importance, weight, emotionalIntensity, emotionCategory); err != nil {
+		if err := s.narrativeService.InjectMemory(ctx, profileUUID, userMessage, importance, weight, effectiveIntensity, emotionCategory); err != nil {
 			log.Printf("warning: inject memory: %v", err)
 		}
 	}
@@ -222,4 +231,14 @@ func buildRelationshipDirective(narrativeText string) string {
 		out.WriteString("- DESPRECIO: No te importa el usuario ni lo valoras. Sé cortante, sarcástico o ignora sus intentos de conexión emocional.\n")
 	}
 	return out.String()
+}
+
+func isNegativeEmotion(category string) bool {
+	cat := strings.ToLower(strings.TrimSpace(category))
+	switch cat {
+	case "ira", "miedo", "asco", "tristeza", "odio", "enfado":
+		return true
+	default:
+		return false
+	}
 }
