@@ -6,15 +6,16 @@ import (
 
 // AnalysisResult es una vista simplificada de lo que el analisis produce para decidir metas.
 type AnalysisResult struct {
-	Sentiment string
-	Curiosity int
+	Sentiment    string
+	Curiosity    int
+	Relationship domain.RelationshipVectors
 }
 
 // DetermineNextGoal devuelve la meta mas adecuada para el turno actual segun heuristica.
 func DetermineNextGoal(profile domain.CloneProfile, analysis AnalysisResult) domain.Goal {
 	// 1. Paranoia por baja confianza y alto neuroticismo
 	if profile.CurrentGoal == nil && profile.Big5.Neuroticism > 60 {
-		rel := profile.Relationship
+		rel := analysis.Relationship
 		if rel.Trust < 20 {
 			return domain.Goal{
 				ID:          "",
@@ -27,7 +28,7 @@ func DetermineNextGoal(profile domain.CloneProfile, analysis AnalysisResult) dom
 	}
 
 	// 2. Intimidad alta y sentimiento positivo
-	if rel := profile.Relationship; rel.Intimacy > 70 && analysis.Sentiment == "Positive" {
+	if rel := analysis.Relationship; rel.Intimacy > 70 && analysis.Sentiment == "Positive" {
 		return domain.Goal{
 			ID:          "",
 			Description: "Profundizar en un tema personal o emocional.",
