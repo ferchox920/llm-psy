@@ -15,12 +15,13 @@ type User struct {
 }
 
 type CloneProfile struct {
-	ID        string      `json:"id"`
-	UserID    string      `json:"user_id"`
-	Name      string      `json:"name"`
-	Bio       string      `json:"bio,omitempty"`
-	Big5      Big5Profile `json:"big5"`
-	CreatedAt time.Time   `json:"created_at"`
+	ID          string      `json:"id"`
+	UserID      string      `json:"user_id"`
+	Name        string      `json:"name"`
+	Bio         string      `json:"bio,omitempty"`
+	Big5        Big5Profile `json:"big5"`
+	CurrentGoal *Goal       `json:"current_goal,omitempty"`
+	CreatedAt   time.Time   `json:"created_at"`
 }
 
 type Big5Profile struct {
@@ -48,6 +49,14 @@ func (p *CloneProfile) GetResilience() float64 {
 
 	// Normalizar a factor 0.0 - 1.0 (dividiendo por 100)
 	return score / 100.0
+}
+
+type Goal struct {
+	ID          string `json:"id"`
+	Description string `json:"description"` // Ej: "Averiguar si el usuario tiene pareja"
+	Status      string `json:"status"`      // "pending", "active", "completed", "failed"
+	Priority    int    `json:"priority"`    // 1-10
+	Source      string `json:"source"`      // "system_generated", "narrative_driven"
 }
 
 type Session struct {
