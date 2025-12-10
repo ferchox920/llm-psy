@@ -180,7 +180,7 @@ func (h *Handlers) PostMessage(c *gin.Context) {
 		h.logger.Info("analysis finished", zap.String("user_id", userID))
 	}(req.UserID, req.Content)
 
-	cloneMsg, err := h.cloneServ.Chat(c.Request.Context(), req.UserID, req.SessionID, req.Content)
+	cloneMsg, _, err := h.cloneServ.Chat(c.Request.Context(), req.UserID, req.SessionID, req.Content)
 	if err != nil {
 		h.logger.Error("clone response failed", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{

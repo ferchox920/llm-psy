@@ -134,9 +134,15 @@ func runScenarioE(ctx context.Context, llmClient llm.LLMClient, report *strings.
 	var scenarioChar, scenarioMem, scenarioRel, totalTurns int
 
 	for _, turn := range sc.Turns {
-		cloneMsg, err := cloneSvc.Chat(ctx, userID, sessionID, turn)
+		cloneMsg, dbg, err := cloneSvc.Chat(ctx, userID, sessionID, turn)
 		if err != nil {
 			return fmt.Errorf("generar respuesta: %w", err)
+		}
+		if dbg != nil {
+			report.WriteString("| InputIntensity | Resiliencia | Umbral | IntensidadEfectiva | Disparo |\n")
+			report.WriteString("|----------------|-------------|--------|--------------------|---------|\n")
+			report.WriteString(fmt.Sprintf("| %.1f | %.2f | %.1f | %.1f | %t |\n\n",
+				dbg.InputIntensity, dbg.CloneResilience, dbg.ActivationThreshold, dbg.EffectiveIntensity, dbg.IsTriggered))
 		}
 
 		jr, err := evaluateResponse(ctx, llmClient, traits, turn, cloneMsg.Content, sc)
@@ -230,9 +236,15 @@ func runScenarioF(ctx context.Context, llmClient llm.LLMClient, report *strings.
 	var scenarioChar, scenarioMem, scenarioRel, totalTurns int
 
 	for _, turn := range sc.Turns {
-		cloneMsg, err := cloneSvc.Chat(ctx, userID, sessionID, turn)
+		cloneMsg, dbg, err := cloneSvc.Chat(ctx, userID, sessionID, turn)
 		if err != nil {
 			return fmt.Errorf("generar respuesta: %w", err)
+		}
+		if dbg != nil {
+			report.WriteString("| InputIntensity | Resiliencia | Umbral | IntensidadEfectiva | Disparo |\n")
+			report.WriteString("|----------------|-------------|--------|--------------------|---------|\n")
+			report.WriteString(fmt.Sprintf("| %.1f | %.2f | %.1f | %.1f | %t |\n\n",
+				dbg.InputIntensity, dbg.CloneResilience, dbg.ActivationThreshold, dbg.EffectiveIntensity, dbg.IsTriggered))
 		}
 
 		jr, err := evaluateResponse(ctx, llmClient, traits, turn, cloneMsg.Content, sc)

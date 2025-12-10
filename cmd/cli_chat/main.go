@@ -196,7 +196,7 @@ func chatFlow(ctx context.Context, reader *bufio.Reader, profile domain.ClonePro
 			continue
 		}
 
-		cloneMsg, err := cloneSvc.Chat(ctx, user.ID, session.ID, text)
+		cloneMsg, _, err := cloneSvc.Chat(ctx, user.ID, session.ID, text)
 		if err != nil {
 			fmt.Printf("error generando respuesta: %v\n", err)
 			continue

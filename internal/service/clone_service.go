@@ -48,21 +48,21 @@ func NewCloneService(
 }
 
 // Chat genera una respuesta del clon basada en perfil, rasgos y contexto, la persiste y devuelve el mensaje completo.
-func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage string) (domain.Message, error) {
+func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage string) (domain.Message, *domain.InteractionDebug, error) {
 	profile, err := s.profileRepo.GetByUserID(ctx, userID)
 	if err != nil {
-		return domain.Message{}, fmt.Errorf("get profile: %w", err)
+		return domain.Message{}, nil, fmt.Errorf("get profile: %w", err)
 	}
 	profileUUID, parseErr := uuid.Parse(profile.ID)
 
 	traits, err := s.traitRepo.FindByProfileID(ctx, profile.ID)
 	if err != nil {
-		return domain.Message{}, fmt.Errorf("get traits: %w", err)
+		return domain.Message{}, nil, fmt.Errorf("get traits: %w", err)
 	}
 
 	contextText, err := s.contextService.GetContext(ctx, sessionID)
 	if err != nil {
-		return domain.Message{}, fmt.Errorf("get context: %w", err)
+		return domain.Message{}, nil, fmt.Errorf("get context: %w", err)
 	}
 
 	var narrativeText string
@@ -92,13 +92,18 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	}
 	// Aplicar amortiguacion por resiliencia y filtro de trauma
 	effectiveIntensity := emotionalIntensity
+	var interactionDebug *domain.InteractionDebug
 	if emotionalIntensity < 30 && (isNegativeEmotion(emotionCategory) || isNeutralEmotion(emotionCategory)) {
 		effectiveIntensity = 0
 		trivialInput = true
 	}
 	// Modelo ReLu de intensidad efectiva basado en resiliencia/Big5
-	effective := s.CalculateEffectiveIntensity(float64(effectiveIntensity), profile.Big5)
+	effective, dbg := s.CalculateReaction(float64(effectiveIntensity), profile.Big5)
+	interactionDebug = dbg
 	effectiveIntensity = int(math.Round(effective))
+	if effectiveIntensity == 0 && resilience >= 0.5 {
+		trivialInput = true
+	}
 
 	if s.narrativeService != nil && parseErr == nil {
 		weight := (effectiveIntensity + 9) / 10
@@ -118,7 +123,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 
 	responseRaw, err := s.llmClient.Generate(ctx, prompt)
 	if err != nil {
-		return domain.Message{}, fmt.Errorf("llm generate: %w", err)
+		return domain.Message{}, nil, fmt.Errorf("llm generate: %w", err)
 	}
 
 	log.Printf("clone raw response (llm output): %s", responseRaw)
@@ -140,10 +145,10 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	}
 
 	if err := s.messageRepo.Create(ctx, cloneMessage); err != nil {
-		return domain.Message{}, fmt.Errorf("persist clone message: %w", err)
+		return domain.Message{}, nil, fmt.Errorf("persist clone message: %w", err)
 	}
 
-	return cloneMessage, nil
+	return cloneMessage, interactionDebug, nil
 }
 
 func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []domain.Trait, contextText, narrativeText, userMessage string, trivialInput bool) string {
@@ -327,32 +332,23 @@ func isNeutralEmotion(category string) bool {
 	return cat == "neutral" || cat == ""
 }
 
-// CalculateEffectiveIntensity aplica un filtro psicofísico (ReLu) según resiliencia.
-// Las ofensas menores al umbral se ignoran; las mayores golpean con fuerza.
-func (s *CloneService) CalculateEffectiveIntensity(rawIntensity float64, traits domain.Big5Profile) float64 {
+// CalculateReaction aplica un umbral ReLu basado en resiliencia para definir la intensidad efectiva.
+// Devuelve la intensidad resultante y metadata de depuracion.
+func (s *CloneService) CalculateReaction(rawIntensity float64, traits domain.Big5Profile) (float64, *domain.InteractionDebug) {
 	resilience := (100.0 - float64(traits.Neuroticism)) / 100.0
 	if resilience < 0 {
 		resilience = 0
 	}
-	activationThreshold := 35.0 * resilience
+	activationThreshold := 30.0 * resilience
 	effectiveIntensity := rawIntensity - activationThreshold
 	if effectiveIntensity < 0 {
-		return 0.0
+		effectiveIntensity = 0
 	}
-	return effectiveIntensity
-}
-
-func cleanLLMJSONResponse(resp string) string {
-	text := strings.TrimSpace(resp)
-	if strings.HasPrefix(text, "```") {
-		text = strings.TrimPrefix(text, "```json")
-		text = strings.TrimPrefix(text, "```JSON")
-		text = strings.TrimPrefix(text, "```")
-		text = strings.TrimSpace(text)
-		if idx := strings.LastIndex(text, "```"); idx >= 0 {
-			text = text[:idx]
-			text = strings.TrimSpace(text)
-		}
+	return effectiveIntensity, &domain.InteractionDebug{
+		InputIntensity:      rawIntensity,
+		CloneResilience:     resilience,
+		ActivationThreshold: activationThreshold,
+		EffectiveIntensity:  effectiveIntensity,
+		IsTriggered:         effectiveIntensity > 0,
 	}
-	return text
 }

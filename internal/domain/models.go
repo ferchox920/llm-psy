@@ -138,3 +138,12 @@ type LLMResponse struct {
 	RespectDelta   int    `json:"respect_delta"`
 	NewState       string `json:"new_state"`
 }
+
+// InteractionDebug expone datos intermedios para pruebas/telemetría.
+type InteractionDebug struct {
+	InputIntensity      float64 `json:"input_intensity"`
+	CloneResilience     float64 `json:"clone_resilience"`
+	ActivationThreshold float64 `json:"activation_threshold"`
+	EffectiveIntensity  float64 `json:"effective_intensity"`
+	IsTriggered         bool    `json:"is_triggered"`
+}
