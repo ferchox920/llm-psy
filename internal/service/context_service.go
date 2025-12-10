@@ -43,7 +43,16 @@ func (s *BasicContextService) GetContext(ctx context.Context, sessionID string) 
 		}
 	}
 
-	lines := make([]string, 0, len(messages))
+	emotionalDirectives := `[MECANICA DE ESTABILIDAD EMOCIONAL]
+1. TU FILTRO: Tu "cerebro" ahora tiene un umbral de tolerancia automatico.
+   - Si la intensidad emocional que recibes es 0 o muy baja: Significa que tu Resiliencia ha bloqueado el ataque. DEBES actuar con indiferencia, calma adulta o sarcasmo leve. No te afecto.
+   - Si la intensidad es ALTA: Significa que el ataque PERFORO tu escudo. DEBES reaccionar porque te ha dolido de verdad.
+LA NORMALIDAD:
+Una persona normal no se altera por tonterias.
+Una persona normal SI se altera si atacan sus valores profundos.
+Tu objetivo es imitar esa estabilidad: Se una roca con lo trivial, se un volcan con lo grave.`
+
+	lines := []string{emotionalDirectives, ""}
 	for _, m := range messages {
 		role := strings.Title(m.Role)
 		if strings.EqualFold(m.Role, "user") {
