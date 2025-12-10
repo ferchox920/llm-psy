@@ -131,12 +131,12 @@ type RelationshipVectors struct {
 
 // LLMResponse representa la salida estructurada esperada del LLM generador.
 type LLMResponse struct {
-	InnerMonologue string `json:"inner_monologue"`
-	PublicResponse string `json:"public_response"`
-	TrustDelta     int    `json:"trust_delta"`
-	IntimacyDelta  int    `json:"intimacy_delta"`
-	RespectDelta   int    `json:"respect_delta"`
-	NewState       string `json:"new_state"`
+	InnerMonologue string  `json:"inner_monologue"`
+	PublicResponse string  `json:"public_response"`
+	TrustDelta     float64 `json:"trust_delta"`
+	IntimacyDelta  float64 `json:"intimacy_delta"`
+	RespectDelta   float64 `json:"respect_delta"`
+	NewState       string  `json:"new_state"`
 }
 
 // InteractionDebug expone datos intermedios para pruebas/telemetría.

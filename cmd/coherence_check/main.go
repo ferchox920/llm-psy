@@ -380,6 +380,12 @@ func (m *memoryProfileRepo) Create(ctx context.Context, profile domain.CloneProf
 	m.profile = profile
 	return nil
 }
+func (m *memoryProfileRepo) GetByID(ctx context.Context, id string) (domain.CloneProfile, error) {
+	if m.profile.ID == id {
+		return m.profile, nil
+	}
+	return domain.CloneProfile{}, fmt.Errorf("not found")
+}
 func (m *memoryProfileRepo) GetByUserID(ctx context.Context, userID string) (domain.CloneProfile, error) {
 	if m.profile.UserID == userID {
 		return m.profile, nil

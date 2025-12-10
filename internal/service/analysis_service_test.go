@@ -21,6 +21,10 @@ func (m *mockProfileRepo) Create(ctx context.Context, profile domain.CloneProfil
 	return errors.New("not implemented")
 }
 
+func (m *mockProfileRepo) GetByID(ctx context.Context, id string) (domain.CloneProfile, error) {
+	return m.profile, m.err
+}
+
 func (m *mockProfileRepo) GetByUserID(ctx context.Context, userID string) (domain.CloneProfile, error) {
 	return m.profile, m.err
 }
