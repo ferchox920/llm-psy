@@ -153,3 +153,10 @@ type MemoryConsolidation struct {
 	Summary  string   `json:"summary"`
 	NewFacts []string `json:"new_facts"`
 }
+
+// NarrativeOutput es la estructura esperada del LLM al analizar una sesión.
+type NarrativeOutput struct {
+	Summary        string   `json:"summary"`         // Resumen narrativo de lo sucedido (3ra persona)
+	ExtractedFacts []string `json:"extracted_facts"` // Lista de datos duros nuevos o hechos relevantes
+	EmotionalShift string   `json:"emotional_shift"` // Cambio en la dinámica
+}

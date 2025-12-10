@@ -229,7 +229,10 @@ func (s *NarrativeService) GenerateNarrative(ctx context.Context, messages []dom
 		convo.WriteString(fmt.Sprintf("%s: %s\n", role, strings.TrimSpace(m.Content)))
 	}
 
-	prompt := `Analiza la conversacion. 1) Escribe un resumen breve en tercera persona enfocandote en la dinamica de la relacion y eventos clave. 2) Extrae una lista de HECHOS PERMANENTES sobre el usuario (nombres, gustos, ubicacion) que se hayan mencionado explicitamente. Devuelve JSON con campos: {"summary": "...", "new_facts": ["...", "..."]}.`
+	prompt := `Actua como un Analista de Archivos Psicologicos. Analiza el siguiente historial de chat. Genera un JSON valido con:
+1) "summary": Un resumen conciso en tercera persona, enfocado en dinamica de relacion y eventos clave.
+2) "extracted_facts": Una lista de HECHOS objetivos sobre el usuario o la relacion que se mencionaron explicitamente (nombres, gustos, ubicacion, relaciones).
+3) "emotional_shift": Una frase sobre como cambio el tono (ej: "Confianza disminuyo", "Clima emocional se enfrio").`
 	full := prompt + "\n\n" + convo.String()
 
 	raw, err := s.llmClient.Generate(ctx, full)
@@ -239,13 +242,23 @@ func (s *NarrativeService) GenerateNarrative(ctx context.Context, messages []dom
 
 	clean := strings.TrimSpace(raw)
 	clean = strings.TrimPrefix(clean, "```json")
+	clean = strings.TrimPrefix(clean, "```JSON")
 	clean = strings.TrimPrefix(clean, "```")
 	clean = strings.TrimSuffix(clean, "```")
 	clean = strings.TrimSpace(clean)
 
-	var mc domain.MemoryConsolidation
-	if err := json.Unmarshal([]byte(clean), &mc); err != nil {
+	var out domain.NarrativeOutput
+	if err := json.Unmarshal([]byte(clean), &out); err != nil {
 		return domain.MemoryConsolidation{}, fmt.Errorf("parse consolidation json: %w", err)
+	}
+
+	if len(out.ExtractedFacts) > 0 {
+		fmt.Printf("Hechos descubiertos: %v\n", out.ExtractedFacts)
+	}
+
+	mc := domain.MemoryConsolidation{
+		Summary:  out.Summary,
+		NewFacts: out.ExtractedFacts,
 	}
 
 	// TODO: Persistir summary y facts (p.ej., guardar summary en memoria narrativa y facts en un store de hechos).
