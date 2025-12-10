@@ -50,8 +50,9 @@ func main() {
 	contextSvc := service.NewBasicContextService(messageRepo)
 	narrativeSvc := service.NewNarrativeService(characterRepo, memoryRepo, llmClient)
 	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, analysisSvc)
+	testSvc := service.NewTestService(llmClient, analysisSvc, logger)
 
-	handlers := apihttp.NewHandlers(logger, userRepo, profileRepo, sessionRepo, messageRepo, traitRepo, llmClient, analysisSvc, cloneSvc)
+	handlers := apihttp.NewHandlers(logger, userRepo, profileRepo, sessionRepo, messageRepo, traitRepo, llmClient, analysisSvc, cloneSvc, testSvc)
 	router := apihttp.NewRouter(logger, handlers)
 
 	server := &http.Server{

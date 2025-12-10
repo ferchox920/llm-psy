@@ -28,6 +28,7 @@ type Handlers struct {
 	llmClient    llm.LLMClient
 	analysisServ *service.AnalysisService
 	cloneServ    *service.CloneService
+	testServ     *service.TestService
 }
 
 // NewHandlers crea una instancia de Handlers con las dependencias necesarias.
@@ -41,6 +42,7 @@ func NewHandlers(
 	llmClient llm.LLMClient,
 	analysisServ *service.AnalysisService,
 	cloneServ *service.CloneService,
+	testServ *service.TestService,
 ) *Handlers {
 	return &Handlers{
 		logger:       logger,
@@ -52,6 +54,7 @@ func NewHandlers(
 		llmClient:    llmClient,
 		analysisServ: analysisServ,
 		cloneServ:    cloneServ,
+		testServ:     testServ,
 	}
 }
 

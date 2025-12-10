@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"go.uber.org/zap"
 
 	"clone-llm/internal/config"
 	"clone-llm/internal/db"
@@ -35,6 +36,9 @@ func main() {
 		log.Fatal(err)
 	}
 
+	logger, _ := zap.NewExample()
+	defer logger.Sync()
+
 	pool, err := db.NewPool(ctx, cfg)
 	if err != nil {
 		log.Fatal(err)
@@ -49,10 +53,12 @@ func main() {
 	characterRepo := repository.NewPgCharacterRepository(pool)
 	memoryRepo := repository.NewPgMemoryRepository(pool)
 
-	llmClient := llm.NewHTTPClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, nil)
+	llmClient := llm.NewHTTPClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, logger)
+	analysisSvc := service.NewAnalysisService(llmClient, traitRepo, profileRepo, logger)
+	testSvc := service.NewTestService(llmClient, analysisSvc, logger)
 	contextSvc := service.NewBasicContextService(messageRepo)
 	narrativeSvc := service.NewNarrativeService(characterRepo, memoryRepo, llmClient)
-	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, nil)
+	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, analysisSvc)
 
 	user, err := ensureUser(ctx, pool, userRepo, "cli_test@example.com")
 	if err != nil {
@@ -97,6 +103,24 @@ func main() {
 				continue
 			}
 			selected = profiles[idx-1]
+		}
+
+		if selected.Big5.Openness == 0 && selected.Big5.Neuroticism == 0 {
+			fmt.Println("\n--- Inicialización de Personalidad ---")
+			fmt.Println("Parece que este perfil no tiene rasgos OCEAN iniciales.")
+			fmt.Println("[T] Responder Test de Personalidad (Recomendado para un mejor comportamiento)")
+			fmt.Println("[C] Continuar con la conversación (los rasgos se inferirán solo de la biografía)")
+			fmt.Print("Selección [T/C]: ")
+
+			selection, _ := reader.ReadString('\n')
+			selection = strings.TrimSpace(strings.ToUpper(selection))
+
+			if selection == "T" {
+				runPersonalityTest(ctx, testSvc, selected.UserID, reader, logger)
+				if refreshed, err := profileRepo.GetByUserID(ctx, selected.UserID); err == nil {
+					selected = refreshed
+				}
+			}
 		}
 
 		if err := runActionsMenu(ctx, reader, selected, user, sessionRepo, messageRepo, traitRepo, characterRepo, narrativeSvc, cloneSvc); err != nil {
@@ -360,4 +384,27 @@ func createProfileFlow(ctx context.Context, reader *bufio.Reader, repo repositor
 		return nil, err
 	}
 	return &profile, nil
+}
+
+func runPersonalityTest(ctx context.Context, testSvc *service.TestService, userID string, reader *bufio.Reader, logger *zap.Logger) {
+	questions := testSvc.GenerateInitialQuestions()
+	responses := make(map[string]string)
+
+	fmt.Println("\n--- TEST DE PERSONALIDAD OCEAN (5 Preguntas) ---")
+	fmt.Println("Por favor, responde honestamente para inicializar la personalidad del clon.")
+
+	for i, q := range questions {
+		fmt.Printf("\n[%d/%d] %s: ", i+1, len(questions), q)
+		input, _ := reader.ReadString('\n')
+		responses[q] = strings.TrimSpace(input)
+	}
+
+	fmt.Println("\nAnalizando respuestas para inferir rasgos OCEAN. Por favor, espere...")
+
+	if err := testSvc.AnalyzeTestResponses(ctx, userID, responses); err != nil {
+		logger.Error("Error during test analysis", zap.Error(err), zap.String("user_id", userID))
+		fmt.Println("ERROR: No se pudieron guardar los rasgos. Revise los logs.")
+	} else {
+		fmt.Println("\n✅ Personalidad inicial guardada con éxito.")
+	}
 }
