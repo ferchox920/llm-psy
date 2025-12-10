@@ -128,3 +128,13 @@ type RelationshipVectors struct {
 	Intimacy int `json:"intimacy"` // Carino/Afecto
 	Respect  int `json:"respect"`  // Respeto profesional/intelectual
 }
+
+// LLMResponse representa la salida estructurada esperada del LLM generador.
+type LLMResponse struct {
+	InnerMonologue string `json:"inner_monologue"`
+	PublicResponse string `json:"public_response"`
+	TrustDelta     int    `json:"trust_delta"`
+	IntimacyDelta  int    `json:"intimacy_delta"`
+	RespectDelta   int    `json:"respect_delta"`
+	NewState       string `json:"new_state"`
+}

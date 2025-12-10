@@ -2,10 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
-	"regexp"
 	"strings"
 	"time"
 
@@ -26,8 +26,6 @@ type CloneService struct {
 	narrativeService *NarrativeService
 	analysisService  *AnalysisService
 }
-
-var innerMonologueRE = regexp.MustCompile(`(?s)<inner_monologue>.*?</inner_monologue>`)
 
 func NewCloneService(
 	llmClient llm.LLMClient,
@@ -128,8 +126,14 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 		return domain.Message{}, fmt.Errorf("llm generate: %w", err)
 	}
 
-	log.Printf("clone raw response (with inner monologue): %s", responseRaw)
-	response := strings.TrimSpace(innerMonologueRE.ReplaceAllString(responseRaw, ""))
+	log.Printf("clone raw response (llm output): %s", responseRaw)
+	cleaned := cleanLLMJSONResponse(responseRaw)
+	var llmResp domain.LLMResponse
+	if err := json.Unmarshal([]byte(cleaned), &llmResp); err != nil {
+		log.Printf("warning: parse llm json: %v", err)
+		llmResp.PublicResponse = strings.TrimSpace(responseRaw)
+	}
+	response := strings.TrimSpace(llmResp.PublicResponse)
 
 	cloneMessage := domain.Message{
 		ID:        uuid.NewString(),
@@ -267,7 +271,19 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 
 	sb.WriteString("\n=== MENSAJE DEL USUARIO ===\n")
 	sb.WriteString(fmt.Sprintf("%q\n\n", userMessage))
-	sb.WriteString("Responde como el personaje. Manten el estilo conversacional, natural y coherente con tus rasgos filtrados por el vinculo.")
+	sb.WriteString("Responde como el personaje. Manten el estilo conversacional, natural y coherente con tus rasgos filtrados por el vinculo.\n\n")
+
+	sb.WriteString("=== FORMATO DE SALIDA (JSON ESTRICTO) ===\n")
+	sb.WriteString(`Devuelve SOLO un JSON con campos:
+{
+  "inner_monologue": "razona aqui en privado",
+  "public_response": "mensaje para el usuario",
+  "trust_delta": 0,
+  "intimacy_delta": 0,
+  "respect_delta": 0,
+  "new_state": "opcional: describe cambio de estado"
+}
+`)
 
 	return sb.String()
 }
@@ -314,4 +330,19 @@ func isNegativeEmotion(category string) bool {
 func isNeutralEmotion(category string) bool {
 	cat := strings.ToLower(strings.TrimSpace(category))
 	return cat == "neutral" || cat == ""
+}
+
+func cleanLLMJSONResponse(resp string) string {
+	text := strings.TrimSpace(resp)
+	if strings.HasPrefix(text, "```") {
+		text = strings.TrimPrefix(text, "```json")
+		text = strings.TrimPrefix(text, "```JSON")
+		text = strings.TrimPrefix(text, "```")
+		text = strings.TrimSpace(text)
+		if idx := strings.LastIndex(text, "```"); idx >= 0 {
+			text = text[:idx]
+			text = strings.TrimSpace(text)
+		}
+	}
+	return text
 }
