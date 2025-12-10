@@ -95,15 +95,10 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	if emotionalIntensity < 30 && (isNegativeEmotion(emotionCategory) || isNeutralEmotion(emotionCategory)) {
 		effectiveIntensity = 0
 		trivialInput = true
-	} else if isNegativeEmotion(emotionCategory) {
-		if emotionalIntensity < 60 {
-			attenuation := 1.0 - (resilience * 0.7)
-			effectiveIntensity = int(math.Round(float64(emotionalIntensity) * attenuation))
-		} else if emotionalIntensity > 50 {
-			attenuation := 1.0 - (resilience * 0.5) // nunca inmune
-			effectiveIntensity = int(math.Round(float64(emotionalIntensity) * attenuation))
-		}
 	}
+	// Modelo ReLu de intensidad efectiva basado en resiliencia/Big5
+	effective := s.CalculateEffectiveIntensity(float64(effectiveIntensity), profile.Big5)
+	effectiveIntensity = int(math.Round(effective))
 
 	if s.narrativeService != nil && parseErr == nil {
 		weight := (effectiveIntensity + 9) / 10
@@ -330,6 +325,21 @@ func isNegativeEmotion(category string) bool {
 func isNeutralEmotion(category string) bool {
 	cat := strings.ToLower(strings.TrimSpace(category))
 	return cat == "neutral" || cat == ""
+}
+
+// CalculateEffectiveIntensity aplica un filtro psicofísico (ReLu) según resiliencia.
+// Las ofensas menores al umbral se ignoran; las mayores golpean con fuerza.
+func (s *CloneService) CalculateEffectiveIntensity(rawIntensity float64, traits domain.Big5Profile) float64 {
+	resilience := (100.0 - float64(traits.Neuroticism)) / 100.0
+	if resilience < 0 {
+		resilience = 0
+	}
+	activationThreshold := 35.0 * resilience
+	effectiveIntensity := rawIntensity - activationThreshold
+	if effectiveIntensity < 0 {
+		return 0.0
+	}
+	return effectiveIntensity
 }
 
 func cleanLLMJSONResponse(resp string) string {
