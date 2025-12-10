@@ -12,6 +12,7 @@ import (
 
 type ProfileRepository interface {
 	Create(ctx context.Context, profile domain.CloneProfile) error
+	GetByID(ctx context.Context, id string) (domain.CloneProfile, error)
 	GetByUserID(ctx context.Context, userID string) (domain.CloneProfile, error)
 }
 
@@ -36,6 +37,26 @@ func (r *PgProfileRepository) Create(ctx context.Context, profile domain.ClonePr
 		profile.CreatedAt,
 	)
 	return err
+}
+
+func (r *PgProfileRepository) GetByID(ctx context.Context, id string) (domain.CloneProfile, error) {
+	const query = `
+		SELECT id, user_id, name, bio, created_at
+		FROM clone_profiles
+		WHERE id = $1
+	`
+	var profile domain.CloneProfile
+	err := r.pool.QueryRow(ctx, query, id).Scan(
+		&profile.ID,
+		&profile.UserID,
+		&profile.Name,
+		&profile.Bio,
+		&profile.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.CloneProfile{}, err
+	}
+	return profile, err
 }
 
 func (r *PgProfileRepository) GetByUserID(ctx context.Context, userID string) (domain.CloneProfile, error) {

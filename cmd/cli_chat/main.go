@@ -36,7 +36,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	logger, _ := zap.NewExample()
+	logger := zap.NewExample()
 	defer logger.Sync()
 
 	pool, err := db.NewPool(ctx, cfg)
@@ -117,7 +117,8 @@ func main() {
 
 			if selection == "T" {
 				runPersonalityTest(ctx, testSvc, selected.UserID, reader, logger)
-				if refreshed, err := profileRepo.GetByUserID(ctx, selected.UserID); err == nil {
+				// Usar GetByID para recargar el perfil recién actualizado.
+				if refreshed, err := profileRepo.GetByID(ctx, selected.ID); err == nil {
 					selected = refreshed
 				}
 			}
