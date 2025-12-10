@@ -147,3 +147,9 @@ type InteractionDebug struct {
 	EffectiveIntensity  float64 `json:"effective_intensity"`
 	IsTriggered         bool    `json:"is_triggered"`
 }
+
+// MemoryConsolidation combina narrativa y hechos concretos extraídos de una conversación.
+type MemoryConsolidation struct {
+	Summary  string   `json:"summary"`
+	NewFacts []string `json:"new_facts"`
+}

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -23,6 +24,7 @@ type NarrativeService struct {
 
 type llmClientWithEmbedding interface {
 	CreateEmbedding(ctx context.Context, text string) ([]float32, error)
+	Generate(ctx context.Context, prompt string) (string, error)
 }
 
 func NewNarrativeService(
@@ -214,4 +216,38 @@ func humanizeRelative(t time.Time) string {
 	}
 	years := months / 12
 	return fmt.Sprintf("Hace %d anos", years)
+}
+
+// GenerateNarrative consolida narrativa y hechos puntuales desde el historial.
+func (s *NarrativeService) GenerateNarrative(ctx context.Context, messages []domain.Message) (domain.MemoryConsolidation, error) {
+	var convo strings.Builder
+	for _, m := range messages {
+		role := "User"
+		if strings.ToLower(m.Role) == "clone" {
+			role = "Clone"
+		}
+		convo.WriteString(fmt.Sprintf("%s: %s\n", role, strings.TrimSpace(m.Content)))
+	}
+
+	prompt := `Analiza la conversacion. 1) Escribe un resumen breve en tercera persona enfocandote en la dinamica de la relacion y eventos clave. 2) Extrae una lista de HECHOS PERMANENTES sobre el usuario (nombres, gustos, ubicacion) que se hayan mencionado explicitamente. Devuelve JSON con campos: {"summary": "...", "new_facts": ["...", "..."]}.`
+	full := prompt + "\n\n" + convo.String()
+
+	raw, err := s.llmClient.Generate(ctx, full)
+	if err != nil {
+		return domain.MemoryConsolidation{}, fmt.Errorf("llm generate consolidation: %w", err)
+	}
+
+	clean := strings.TrimSpace(raw)
+	clean = strings.TrimPrefix(clean, "```json")
+	clean = strings.TrimPrefix(clean, "```")
+	clean = strings.TrimSuffix(clean, "```")
+	clean = strings.TrimSpace(clean)
+
+	var mc domain.MemoryConsolidation
+	if err := json.Unmarshal([]byte(clean), &mc); err != nil {
+		return domain.MemoryConsolidation{}, fmt.Errorf("parse consolidation json: %w", err)
+	}
+
+	// TODO: Persistir summary y facts (p.ej., guardar summary en memoria narrativa y facts en un store de hechos).
+	return mc, nil
 }
