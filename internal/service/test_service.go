@@ -27,11 +27,31 @@ func NewTestService(llmClient llm.LLMClient, analysisSvc *AnalysisService, logge
 // GenerateInitialQuestions devuelve un conjunto estático de preguntas para el test OCEAN.
 func (s *TestService) GenerateInitialQuestions() []string {
 	return []string{
+
+		// ───────────── Apertura (Openness) ─────────────
 		"¿Qué tan de acuerdo estás con explorar ideas no convencionales o abstractas?",
+		"Cuando te enfrentas a algo totalmente nuevo, ¿sentís curiosidad o rechazo inicial?",
+		"¿Disfrutás de actividades creativas como escribir, dibujar, programar cosas experimentales o pensar teorías nuevas?",
+
+		// ───────────── Responsabilidad (Conscientiousness) ─────────────
 		"¿Con qué frecuencia planificas tu día con antelación y sigues tu horario?",
+		"Cuando tenés un objetivo importante, ¿te mantenés constante o dependés del impulso del momento?",
+		"¿Qué tan ordenado sos con tus responsabilidades, finanzas o compromisos?",
+
+		// ───────────── Extraversión (Extraversion) ─────────────
 		"¿Disfrutas de ser el centro de atención en reuniones sociales, o prefieres grupos pequeños?",
+		"Después de pasar tiempo con mucha gente, ¿te sentís con más energía o agotado?",
+		"¿Te resulta fácil iniciar conversaciones con desconocidos?",
+
+		// ───────────── Amabilidad (Agreeableness) ─────────────
 		"¿Tiendes a ser comprensivo y perdonar fácilmente los errores de otros?",
+		"Cuando hay un conflicto, ¿preferís ceder, negociar o imponer tu punto de vista?",
+		"¿Qué tan importante es para vos mantener la armonía en tus relaciones?",
+
+		// ───────────── Neuroticismo (Neuroticism) ─────────────
 		"¿Te preocupas con frecuencia por el futuro o sientes ansiedad en situaciones de incertidumbre?",
+		"Cuando algo sale mal, ¿te afecta emocionalmente por mucho tiempo o lo superás rápido?",
+		"¿Con qué frecuencia experimentás cambios intensos de ánimo?",
 	}
 }
 
