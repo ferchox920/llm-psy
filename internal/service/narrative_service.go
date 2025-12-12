@@ -68,33 +68,19 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 
 	searchQuery := s.generateEvocation(ctx, userMessage)
 
-	if searchQuery == "" {
-		if len(active) > 0 {
-			var lines []string
-			for _, c := range active {
-				line := fmt.Sprintf("- Interlocutor: %s (Relacion: %s, Confianza: %d, Intimidad: %d, Respeto: %d", c.Name, c.Relation, c.Relationship.Trust, c.Relationship.Intimacy, c.Relationship.Respect)
-				if strings.TrimSpace(c.BondStatus) != "" {
-					line += fmt.Sprintf(", Estado: %s", c.BondStatus)
-				}
-				line += ")."
-				lines = append(lines, line)
-			}
-			sections = append(sections, "[ESTADO DEL VINCULO]\n"+strings.Join(lines, "\n"))
+	// NUEVO: Si el subconsciente no evoca nada (ruido/trivialidad), no buscamos memorias.
+	// Esto evita alucinaciones y ahorra una llamada a la DB.
+	var memories []domain.NarrativeMemory
+	if searchQuery != "" {
+		embed, err := s.llmClient.CreateEmbedding(ctx, searchQuery)
+		if err != nil {
+			return "", fmt.Errorf("create embedding: %w", err)
 		}
-		if len(sections) == 0 {
-			return "", nil
+
+		memories, err = s.memoryRepo.Search(ctx, profileID, pgvector.NewVector(embed), 5)
+		if err != nil {
+			return "", fmt.Errorf("search memories: %w", err)
 		}
-		return strings.Join(sections, "\n\n"), nil
-	}
-
-	embed, err := s.llmClient.CreateEmbedding(ctx, searchQuery)
-	if err != nil {
-		return "", fmt.Errorf("create embedding: %w", err)
-	}
-
-	memories, err := s.memoryRepo.Search(ctx, profileID, pgvector.NewVector(embed), 5)
-	if err != nil {
-		return "", fmt.Errorf("search memories: %w", err)
 	}
 
 	if len(memories) > 0 {
@@ -314,9 +300,5 @@ func (s *NarrativeService) generateEvocation(ctx context.Context, userMessage st
 	}
 
 	cleaned := strings.TrimSpace(resp)
-	if cleaned == "" {
-		// Si el LLM devolvio vacio, usamos el mensaje original como fallback
-		return userMessage
-	}
 	return cleaned
 }
