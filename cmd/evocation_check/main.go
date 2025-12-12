@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -28,14 +30,14 @@ type Scenario struct {
 	ExtraMemories []ExtraMemory
 }
 
-type testEnv struct {
-	userID    uuid.UUID
-	profileID uuid.UUID
-}
-
 type ExtraMemory struct {
 	Text    string
 	Emotion string
+}
+
+type testEnv struct {
+	userID    uuid.UUID
+	profileID uuid.UUID
 }
 
 func main() {
@@ -65,7 +67,82 @@ func main() {
 	llmClient := llm.NewHTTPClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, nil)
 	narrativeSvc := service.NewNarrativeService(charRepo, memoryRepo, llmClient)
 
-	scenarios := []Scenario{
+	reportPath, writer := setupReportWriters()
+	fmt.Fprintf(writer, "# Reporte de Evocacion\n")
+	fmt.Fprintf(writer, "Fecha: %s\n\n", time.Now().Format(time.RFC3339))
+
+	scenarios := buildScenarios()
+
+	passed := 0
+
+	for _, sc := range scenarios {
+		start := time.Now()
+		fmt.Fprintf(writer, "## %s\n", sc.Name)
+
+		env, err := createTestEnvironment(ctx, userRepo, profileRepo, sc.Name)
+		if err != nil {
+			fmt.Fprintf(writer, "❌ FAIL [%s] setup env: %v\n\n", sc.Name, err)
+			continue
+		}
+
+		if err := narrativeSvc.InjectMemory(ctx, env.profileID, sc.MemoryText, 5, 8, 90, sc.MemoryEmotion); err != nil {
+			fmt.Fprintf(writer, "❌ FAIL [%s] inject memory: %v\n\n", sc.Name, err)
+			continue
+		}
+
+		for _, extra := range sc.ExtraMemories {
+			if err := narrativeSvc.InjectMemory(ctx, env.profileID, extra.Text, 5, 8, 90, extra.Emotion); err != nil {
+				fmt.Fprintf(writer, "❌ FAIL [%s] inject extra memory: %v\n\n", sc.Name, err)
+				continue
+			}
+		}
+
+		runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		contextOut, err := narrativeSvc.BuildNarrativeContext(runCtx, env.profileID, sc.UserInput)
+		cancel()
+		if err != nil {
+			fmt.Fprintf(writer, "❌ FAIL [%s] build narrative: %v\n\n", sc.Name, err)
+			continue
+		}
+
+		matched := strings.Contains(strings.ToLower(contextOut), strings.ToLower(sc.MemoryText))
+		latency := time.Since(start)
+
+		if matched == sc.ShouldMatch {
+			fmt.Fprintf(writer, "✅ PASS [%s] esperado=%t matched=%t latency=%s\n\n", sc.Name, sc.ShouldMatch, matched, latency)
+			passed++
+		} else {
+			fmt.Fprintf(writer, "❌ FAIL [%s] esperado=%t matched=%t latency=%s\n", sc.Name, sc.ShouldMatch, matched, latency)
+			fmt.Fprintf(writer, "Contexto generado:\n```\n%s\n```\n\n", contextOut)
+		}
+	}
+
+	fmt.Fprintf(writer, "Resultados: %d/%d tests pasaron\n", passed, len(scenarios))
+	fmt.Fprintf(writer, "Reporte guardado en %s\n", reportPath)
+
+	if passed != len(scenarios) {
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+func setupReportWriters() (string, io.Writer) {
+	reportsDir := filepath.Join("reports")
+	_ = os.MkdirAll(reportsDir, 0o755)
+	fileName := fmt.Sprintf("evocation_run_%s.md", time.Now().Format("2006-01-02_15-04-05"))
+	reportPath := filepath.Join(reportsDir, fileName)
+
+	f, err := os.Create(reportPath)
+	if err != nil {
+		log.Fatalf("create report file: %v", err)
+	}
+
+	writer := io.MultiWriter(os.Stdout, f)
+	return reportPath, writer
+}
+
+func buildScenarios() []Scenario {
+	return []Scenario{
 		{
 			Name:          "Abandono Directo",
 			MemoryText:    "Mi padre me abandonó",
@@ -194,57 +271,6 @@ func main() {
 			ShouldMatch:   true,
 		},
 	}
-
-	passed := 0
-
-	for _, sc := range scenarios {
-		start := time.Now()
-		env, err := createTestEnvironment(ctx, userRepo, profileRepo, sc.Name)
-		if err != nil {
-			fmt.Printf("❌ FAIL [%s] setup env: %v\n\n", sc.Name, err)
-			continue
-		}
-
-		if err := narrativeSvc.InjectMemory(ctx, env.profileID, sc.MemoryText, 5, 8, 90, sc.MemoryEmotion); err != nil {
-			fmt.Printf("❌ FAIL [%s] inject memory: %v\n\n", sc.Name, err)
-			continue
-		}
-
-		for _, extra := range sc.ExtraMemories {
-			if err := narrativeSvc.InjectMemory(ctx, env.profileID, extra.Text, 5, 8, 90, extra.Emotion); err != nil {
-				fmt.Printf("❌ FAIL [%s] inject extra memory: %v\n\n", sc.Name, err)
-				continue
-			}
-		}
-
-		runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		contextOut, err := narrativeSvc.BuildNarrativeContext(runCtx, env.profileID, sc.UserInput)
-		cancel()
-		if err != nil {
-			fmt.Printf("❌ FAIL [%s] build narrative: %v\n\n", sc.Name, err)
-			continue
-		}
-
-		matched := strings.Contains(strings.ToLower(contextOut), strings.ToLower(sc.MemoryText))
-		latency := time.Since(start)
-
-		fmt.Println("--- Contexto generado ---")
-		fmt.Println(contextOut)
-		fmt.Println("------------------------")
-
-		if matched == sc.ShouldMatch {
-			fmt.Printf("✅ PASS [%s] esperado=%t matched=%t latency=%s\n\n", sc.Name, sc.ShouldMatch, matched, latency)
-			passed++
-		} else {
-			fmt.Printf("❌ FAIL [%s] esperado=%t matched=%t latency=%s\n\n", sc.Name, sc.ShouldMatch, matched, latency)
-		}
-	}
-
-	fmt.Printf("Resultados: %d/%d tests pasaron\n", passed, len(scenarios))
-	if passed != len(scenarios) {
-		os.Exit(1)
-	}
-	os.Exit(0)
 }
 
 func createTestEnvironment(ctx context.Context, userRepo repository.UserRepository, profileRepo repository.ProfileRepository, name string) (testEnv, error) {

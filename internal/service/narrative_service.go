@@ -300,5 +300,6 @@ func (s *NarrativeService) generateEvocation(ctx context.Context, userMessage st
 	}
 
 	cleaned := strings.TrimSpace(resp)
+	// Si el LLM devolvio vacio (ruido/silencio), devolvemos vacio para evitar busquedas irrelevantes.
 	return cleaned
 }
