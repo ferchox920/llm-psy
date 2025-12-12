@@ -74,7 +74,7 @@ func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, qu
 		WHERE clone_profile_id = $1
 		ORDER BY (
 			(1 - (embedding <=> $2)) -- similitud vectorial
-			+ (COALESCE(emotional_intensity, 10) * 0.0005) -- refuerzo por carga emocional
+			+ (COALESCE(emotional_intensity, 10) * 0.0005) -- refuerzo por carga emocional (ajuste 0.0005)
 			- (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0 * 0.01) -- olvido por antiguedad (dias)
 		) DESC
 		LIMIT $3

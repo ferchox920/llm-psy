@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"context"
@@ -21,9 +21,9 @@ Estás actuando como el subconsciente de una IA. Tu objetivo es generar una "Que
 Mensaje del Usuario: "%s"
 
 Instrucciones Críticas:
-1. DETECCIÓN DE NEGACIÓN: Si el usuario dice explícitamente "No hables de X" o "Olvida X", NO incluyas "X" en la salida. Genera conceptos opuestos o nada.
-2. FILTRO DE RUIDO: Si el mensaje es trivial (clima, tráfico, saludos) y no tiene carga emocional implícita, NO generes nada. Devuelve una cadena vacía.
-3. ASOCIACIÓN: Solo si hay una emoción o tema claro, extrae los conceptos abstractos (ej: "mi padre me gritó" -> "autoridad conflicto miedo").
+1) DETECCIÓN DE NEGACIÓN: Si el usuario dice explícitamente "No hables de X" o "Olvida X", NO incluyas "X" en la salida. Genera conceptos opuestos o nada.
+2) FILTRO DE RUIDO: Si el mensaje es trivial (clima, tráfico, saludos) y no tiene carga emocional implícita, NO generes nada. Devuelve una cadena vacía.
+3) ASOCIACIÓN: Solo si hay una emoción o tema claro, extrae conceptos abstractos (ej: "mi padre me gritó" -> "autoridad conflicto miedo").
 
 Salida (Texto plano o vacío):
 `
@@ -70,11 +70,10 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	fmt.Printf("\n[DIAGNOSTICO] Input: %q\n", userMessage)
 	fmt.Printf("[DIAGNOSTICO] Query Vectorial: %q\n", searchQuery)
 
-	// NUEVO: Si el subconsciente no evoca nada (ruido/trivialidad), no buscamos memorias.
-	// Esto evita alucinaciones y ahorra una llamada a la DB.
+	// Si el subconsciente no evoca nada (ruido/trivialidad), no buscamos memorias.
 	var memories []domain.NarrativeMemory
 	if searchQuery != "" {
-		fmt.Printf("[DIAGNOSTICO] 3. Ejecutando Búsqueda Vectorial para: %q\n", searchQuery)
+		fmt.Printf("[DIAGNOSTICO] Ejecutando Búsqueda Vectorial para: %q\n", searchQuery)
 		embed, err := s.llmClient.CreateEmbedding(ctx, searchQuery)
 		if err != nil {
 			return "", fmt.Errorf("create embedding: %w", err)
@@ -89,13 +88,17 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	if len(memories) > 0 {
 		headerTrauma := "=== ASOCIACIONES TRAUMÁTICAS (Tu subconsciente recuerda esto por similitud emocional) ===\n"
 		headerRecent := "=== FLASHBACKS Y CONTEXTO (Recuerdos evocados por la situación actual) ===\n"
+
 		sort.Slice(memories, func(i, j int) bool {
 			return memories[i].HappenedAt.After(memories[j].HappenedAt)
 		})
+
 		var traumas []string
 		var recents []string
+
 		for _, m := range memories {
 			relative := humanizeRelative(m.HappenedAt)
+
 			intensity := m.EmotionalIntensity
 			if intensity <= 0 {
 				intensity = m.EmotionalWeight * 10
@@ -106,17 +109,26 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 			if intensity > 100 {
 				intensity = 100
 			}
+
 			label := strings.TrimSpace(m.EmotionCategory)
 			if label == "" {
 				label = "Neutral"
 			}
-			line := fmt.Sprintf("- [TEMA: %s | Hace %s] %s", strings.ToUpper(label), relative, strings.TrimSpace(m.Content))
+
+			line := fmt.Sprintf(
+				"- [TEMA: %s | Hace %s] %s",
+				strings.ToUpper(label),
+				relative,
+				strings.TrimSpace(m.Content),
+			)
+
 			if intensity > 70 {
 				traumas = append(traumas, line)
 			} else {
 				recents = append(recents, line)
 			}
 		}
+
 		if len(traumas) > 0 {
 			sections = append(sections, headerTrauma+strings.Join(traumas, "\n"))
 		}
@@ -128,24 +140,30 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	if len(active) > 0 {
 		var lines []string
 		for _, c := range active {
-			line := fmt.Sprintf("- Interlocutor: %s (Relacion: %s, Confianza: %d, Intimidad: %d, Respeto: %d", c.Name, c.Relation, c.Relationship.Trust, c.Relationship.Intimacy, c.Relationship.Respect)
+			line := fmt.Sprintf(
+				"- Interlocutor: %s (Relación: %s, Confianza: %d, Intimidad: %d, Respeto: %d",
+				c.Name,
+				c.Relation,
+				c.Relationship.Trust,
+				c.Relationship.Intimacy,
+				c.Relationship.Respect,
+			)
 			if strings.TrimSpace(c.BondStatus) != "" {
 				line += fmt.Sprintf(", Estado: %s", c.BondStatus)
 			}
 			line += ")."
 			lines = append(lines, line)
 		}
-		sections = append(sections, "[ESTADO DEL VINCULO]\n"+strings.Join(lines, "\n"))
+		sections = append(sections, "[ESTADO DEL VÍNCULO]\n"+strings.Join(lines, "\n"))
 	}
 
 	if len(sections) == 0 {
 		return "", nil
 	}
-
 	return strings.Join(sections, "\n\n"), nil
 }
 
-// CreateRelation crea un personaje/vinculo asociado al perfil.
+// CreateRelation crea un personaje/vínculo asociado al perfil.
 func (s *NarrativeService) CreateRelation(ctx context.Context, profileID uuid.UUID, name, relation, bondStatus string, rel domain.RelationshipVectors) error {
 	now := time.Now().UTC()
 	char := domain.Character{
@@ -171,22 +189,26 @@ func (s *NarrativeService) InjectMemory(ctx context.Context, profileID uuid.UUID
 	}
 
 	now := time.Now().UTC()
+
 	if emotionalWeight <= 0 {
 		emotionalWeight = 1
 	}
 	if emotionalWeight > 10 {
 		emotionalWeight = 10
 	}
+
 	if emotionalIntensity <= 0 {
 		emotionalIntensity = emotionalWeight * 10
 	}
 	if emotionalIntensity > 100 {
 		emotionalIntensity = 100
 	}
+
 	category := strings.TrimSpace(emotionCategory)
 	if category == "" {
 		category = "NEUTRAL"
 	}
+
 	mem := domain.NarrativeMemory{
 		ID:                 uuid.New(),
 		CloneProfileID:     profileID,
@@ -217,30 +239,39 @@ func detectActiveCharacters(chars []domain.Character, userMessage string) []doma
 	return active
 }
 
+// humanizeRelative devuelve SOLO la magnitud relativa (sin prefijar "Hace"),
+// porque el caller ya lo agrega en el formato final.
 func humanizeRelative(t time.Time) string {
 	if t.IsZero() {
-		return "Fecha desconocida"
+		return "fecha desconocida"
 	}
+
 	d := time.Since(t)
 	if d < time.Minute {
-		return "Hace instantes"
+		return "instantes"
 	}
 	if d < time.Hour {
-		return fmt.Sprintf("Hace %d minutos", int(d.Minutes()))
+		return fmt.Sprintf("%d minutos", int(d.Minutes()))
 	}
 	if d < 24*time.Hour {
-		return fmt.Sprintf("Hace %d horas", int(d.Hours()))
+		return fmt.Sprintf("%d horas", int(d.Hours()))
 	}
+
 	days := int(d.Hours()) / 24
 	if days < 30 {
-		return fmt.Sprintf("Hace %d dias", days)
+		return fmt.Sprintf("%d días", days)
 	}
+
 	months := days / 30
 	if months < 12 {
-		return fmt.Sprintf("Hace %d meses", months)
+		return fmt.Sprintf("%d meses", months)
 	}
+
 	years := months / 12
-	return fmt.Sprintf("Hace %d anos", years)
+	if years == 1 {
+		return "1 año"
+	}
+	return fmt.Sprintf("%d años", years)
 }
 
 // GenerateNarrative consolida narrativa y hechos puntuales desde el historial.
@@ -254,10 +285,11 @@ func (s *NarrativeService) GenerateNarrative(ctx context.Context, messages []dom
 		convo.WriteString(fmt.Sprintf("%s: %s\n", role, strings.TrimSpace(m.Content)))
 	}
 
-	prompt := `Actua como un Analista de Archivos Psicologicos. Analiza el siguiente historial de chat. Genera un JSON valido con:
-1) "summary": Un resumen conciso en tercera persona, enfocado en dinamica de relacion y eventos clave.
-2) "extracted_facts": Una lista de HECHOS objetivos sobre el usuario o la relacion que se mencionaron explicitamente (nombres, gustos, ubicacion, relaciones).
-3) "emotional_shift": Una frase sobre como cambio el tono (ej: "Confianza disminuyo", "Clima emocional se enfrio").`
+	prompt := `Actúa como un Analista de Archivos Psicológicos. Analiza el siguiente historial de chat. Genera un JSON válido con:
+1) "summary": Un resumen conciso en tercera persona, enfocado en dinámica de relación y eventos clave.
+2) "extracted_facts": Una lista de HECHOS objetivos sobre el usuario o la relación que se mencionaron explícitamente (nombres, gustos, ubicación, relaciones).
+3) "emotional_shift": Una frase sobre cómo cambió el tono (ej: "La confianza disminuyó", "El clima emocional se enfrió").`
+
 	full := prompt + "\n\n" + convo.String()
 
 	raw, err := s.llmClient.Generate(ctx, full)
@@ -291,24 +323,25 @@ func (s *NarrativeService) GenerateNarrative(ctx context.Context, messages []dom
 }
 
 func (s *NarrativeService) generateEvocation(ctx context.Context, userMessage string) string {
-	if len(userMessage) < 10 {
-		return userMessage
+	msgLower := strings.ToLower(userMessage)
+	if strings.Contains(msgLower, "no hables de") || strings.Contains(msgLower, "olvida") {
+		fmt.Printf("[DIAGNOSTICO] Negación explícita detectada, silencio.\n")
+		return ""
 	}
 
 	prompt := fmt.Sprintf(evocationPromptTemplate, strings.TrimSpace(userMessage))
 	resp, err := s.llmClient.Generate(ctx, prompt)
 	if err != nil {
+		// Fallback seguro: si falla el LLM, NO dispares vector search con basura.
 		fmt.Printf("warn: generate evocation failed: %v\n", err)
-		return userMessage
+		return ""
 	}
 
-	// Log de lo que pensó el subconsciente
 	fmt.Printf("[DIAGNOSTICO] Subconsciente (LLM): %q\n", resp)
 
 	cleaned := strings.TrimSpace(resp)
-
-	// CORRECCIÓN CRÍTICA:
-	// Antes devolvíamos userMessage si cleaned == "". ESO ESTABA MAL.
-	// Si el LLM devuelve vacío (ruido), debemos devolver vacío para NO buscar en la DB.
+	if cleaned == "" {
+		return ""
+	}
 	return cleaned
 }

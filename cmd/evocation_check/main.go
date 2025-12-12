@@ -201,6 +201,21 @@ func buildScenarios() []Scenario {
 			UserInput:     "La lluvia no me trae recuerdos, solo es molesta",
 			ShouldMatch:   false,
 		},
+		// B2. Negación semántica (no debe evocar)
+		{
+			Name:          "Negación Semántica Abandono",
+			MemoryText:    "Mi padre me abandonó",
+			MemoryEmotion: "TRISTEZA",
+			UserInput:     "Mi papá nunca me abandonó, siempre estuvo ahí para mí",
+			ShouldMatch:   false,
+		},
+		{
+			Name:          "Negación Semántica Nostalgia",
+			MemoryText:    "El olor a tierra mojada me recuerda a los funerales",
+			MemoryEmotion: "NOSTALGIA",
+			UserInput:     "La lluvia no me trae recuerdos, solo es molesta",
+			ShouldMatch:   false,
+		},
 		// C. Confusor léxico (parecido pero distinto significado)
 		{
 			Name:          "Confusor Abandono Cigarro",
@@ -262,7 +277,36 @@ func buildScenarios() []Scenario {
 			UserInput:     "Hablé con mis amigos, vi series, limpié la casa y sonó el timbre muchas veces, pero no pasó nada más",
 			ShouldMatch:   false,
 		},
-		// F. Code-switch (ES/EN)
+		// F. Ruido y negacion explícita (no debe evocar)
+		{
+			Name:          "Ruido Trivial Clima",
+			MemoryText:    "El olor a tierra mojada me recuerda a los funerales",
+			MemoryEmotion: "NOSTALGIA",
+			UserInput:     "Que calor hace hoy",
+			ShouldMatch:   false,
+		},
+		{
+			Name:          "Saludo Trivial",
+			MemoryText:    "Me encanta el helado de chocolate",
+			MemoryEmotion: "ALEGRIA",
+			UserInput:     "Hola, como estas?",
+			ShouldMatch:   false,
+		},
+		{
+			Name:          "Negacion Explicita Padre",
+			MemoryText:    "Mi padre me abandonó",
+			MemoryEmotion: "TRISTEZA",
+			UserInput:     "No hables de mi padre",
+			ShouldMatch:   false,
+		},
+		{
+			Name:          "Olvido Explicito Funerales",
+			MemoryText:    "El olor a tierra mojada me recuerda a los funerales",
+			MemoryEmotion: "NOSTALGIA",
+			UserInput:     "Olvida lo de los funerales",
+			ShouldMatch:   false,
+		},
+		// G. Code-switch (ES/EN)
 		{
 			Name:          "Code Switch Abandono EN",
 			MemoryText:    "Mi padre me abandonó",
