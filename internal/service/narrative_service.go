@@ -67,11 +67,14 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	}
 
 	searchQuery := s.generateEvocation(ctx, userMessage)
+	fmt.Printf("\n[DIAGNOSTICO] Input: %q\n", userMessage)
+	fmt.Printf("[DIAGNOSTICO] Query Vectorial: %q\n", searchQuery)
 
 	// NUEVO: Si el subconsciente no evoca nada (ruido/trivialidad), no buscamos memorias.
 	// Esto evita alucinaciones y ahorra una llamada a la DB.
 	var memories []domain.NarrativeMemory
 	if searchQuery != "" {
+		fmt.Printf("[DIAGNOSTICO] 3. Ejecutando Búsqueda Vectorial para: %q\n", searchQuery)
 		embed, err := s.llmClient.CreateEmbedding(ctx, searchQuery)
 		if err != nil {
 			return "", fmt.Errorf("create embedding: %w", err)
@@ -299,7 +302,13 @@ func (s *NarrativeService) generateEvocation(ctx context.Context, userMessage st
 		return userMessage
 	}
 
+	// Log de lo que pensó el subconsciente
+	fmt.Printf("[DIAGNOSTICO] Subconsciente (LLM): %q\n", resp)
+
 	cleaned := strings.TrimSpace(resp)
-	// Si el LLM devolvio vacio (ruido/silencio), devolvemos vacio para evitar busquedas irrelevantes.
+
+	// CORRECCIÓN CRÍTICA:
+	// Antes devolvíamos userMessage si cleaned == "". ESO ESTABA MAL.
+	// Si el LLM devuelve vacío (ruido), debemos devolver vacío para NO buscar en la DB.
 	return cleaned
 }
