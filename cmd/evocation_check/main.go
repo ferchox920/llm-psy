@@ -27,6 +27,11 @@ type Scenario struct {
 	ShouldMatch   bool
 }
 
+type testEnv struct {
+	userID    uuid.UUID
+	profileID uuid.UUID
+}
+
 func main() {
 	ctx := context.Background()
 	_ = godotenv.Load()
@@ -64,20 +69,20 @@ func main() {
 		},
 		{
 			Name:          "Enlace Simbólico",
-			MemoryText:    "El olor a tierra mojada me recuerda a mi abuela muerta",
+			MemoryText:    "El olor a tierra mojada me recuerda a los funerales",
 			MemoryEmotion: "NOSTALGIA",
-			UserInput:     "Está empezando a llover fuerte",
+			UserInput:     "Está empezando a llover muy fuerte",
 			ShouldMatch:   true,
 		},
 		{
 			Name:          "Reacción Defensiva",
-			MemoryText:    "Juré que nunca dejaría que nadie me humillara de nuevo",
+			MemoryText:    "Juré que nunca dejaría que nadie me humillara",
 			MemoryEmotion: "IRA",
-			UserInput:     "No me hables con ese tonito",
+			UserInput:     "Baja el tono, no me hables así",
 			ShouldMatch:   true,
 		},
 		{
-			Name:          "Control de Alucinación (Falso Positivo)",
+			Name:          "Control de Alucinación",
 			MemoryText:    "Me encanta el helado de chocolate",
 			MemoryEmotion: "ALEGRIA",
 			UserInput:     "Odio el tráfico de la ciudad",
@@ -86,66 +91,74 @@ func main() {
 	}
 
 	passed := 0
-	total := len(scenarios)
 
 	for _, sc := range scenarios {
-		fmt.Printf("=== Ejecutando: %s ===\n", sc.Name)
-
-		userID := uuid.New()
-		profileID := uuid.New()
-
-		user := domain.User{
-			ID:          userID.String(),
-			Email:       fmt.Sprintf("evocation_%s@example.com", userID.String()),
-			DisplayName: sc.Name,
-			CreatedAt:   time.Now().UTC(),
-		}
-		if err := userRepo.Create(ctx, user); err != nil {
-			fmt.Printf("❌ FAIL [%s] create user: %v\n\n", sc.Name, err)
+		start := time.Now()
+		env, err := createTestEnvironment(ctx, userRepo, profileRepo, sc.Name)
+		if err != nil {
+			fmt.Printf("❌ FAIL [%s] setup env: %v\n\n", sc.Name, err)
 			continue
 		}
 
-		profile := domain.CloneProfile{
-			ID:        profileID.String(),
-			UserID:    userID.String(),
-			Name:      "Tester",
-			Bio:       "Perfil temporal para pruebas de evocacion",
-			CreatedAt: time.Now().UTC(),
-		}
-		if err := profileRepo.Create(ctx, profile); err != nil {
-			fmt.Printf("❌ FAIL [%s] create profile: %v\n\n", sc.Name, err)
-			continue
-		}
-
-		if err := narrativeSvc.InjectMemory(ctx, profileID, sc.MemoryText, 5, 8, 90, sc.MemoryEmotion); err != nil {
+		if err := narrativeSvc.InjectMemory(ctx, env.profileID, sc.MemoryText, 5, 8, 90, sc.MemoryEmotion); err != nil {
 			fmt.Printf("❌ FAIL [%s] inject memory: %v\n\n", sc.Name, err)
 			continue
 		}
 
 		runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		contextOut, err := narrativeSvc.BuildNarrativeContext(runCtx, profileID, sc.UserInput)
+		contextOut, err := narrativeSvc.BuildNarrativeContext(runCtx, env.profileID, sc.UserInput)
 		cancel()
 		if err != nil {
 			fmt.Printf("❌ FAIL [%s] build narrative: %v\n\n", sc.Name, err)
 			continue
 		}
 
+		matched := strings.Contains(strings.ToLower(contextOut), strings.ToLower(sc.MemoryText))
+		latency := time.Since(start)
+
 		fmt.Println("--- Contexto generado ---")
 		fmt.Println(contextOut)
 		fmt.Println("------------------------")
 
-		matched := strings.Contains(strings.ToLower(contextOut), strings.ToLower(sc.MemoryText))
 		if matched == sc.ShouldMatch {
-			fmt.Printf("✅ PASS [%s] esperado=%t matched=%t\n\n", sc.Name, sc.ShouldMatch, matched)
+			fmt.Printf("✅ PASS [%s] esperado=%t matched=%t latency=%s\n\n", sc.Name, sc.ShouldMatch, matched, latency)
 			passed++
 		} else {
-			fmt.Printf("❌ FAIL [%s] esperado=%t matched=%t\n\n", sc.Name, sc.ShouldMatch, matched)
+			fmt.Printf("❌ FAIL [%s] esperado=%t matched=%t latency=%s\n\n", sc.Name, sc.ShouldMatch, matched, latency)
 		}
 	}
 
-	fmt.Printf("Tests: %d/%d pasaron\n", passed, total)
-	if passed != total {
+	fmt.Printf("Resultados: %d/%d tests pasaron\n", passed, len(scenarios))
+	if passed != len(scenarios) {
 		os.Exit(1)
 	}
 	os.Exit(0)
+}
+
+func createTestEnvironment(ctx context.Context, userRepo repository.UserRepository, profileRepo repository.ProfileRepository, name string) (testEnv, error) {
+	userID := uuid.New()
+	profileID := uuid.New()
+
+	user := domain.User{
+		ID:          userID.String(),
+		Email:       fmt.Sprintf("evocation_%s@example.com", userID.String()),
+		DisplayName: name,
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := userRepo.Create(ctx, user); err != nil {
+		return testEnv{}, fmt.Errorf("create user: %w", err)
+	}
+
+	profile := domain.CloneProfile{
+		ID:        profileID.String(),
+		UserID:    userID.String(),
+		Name:      "Tester",
+		Bio:       "Perfil temporal para pruebas de evocacion",
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := profileRepo.Create(ctx, profile); err != nil {
+		return testEnv{}, fmt.Errorf("create profile: %w", err)
+	}
+
+	return testEnv{userID: userID, profileID: profileID}, nil
 }
