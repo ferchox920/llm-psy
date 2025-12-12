@@ -1,0 +1,4 @@
+ALTER TABLE characters
+    DROP COLUMN IF EXISTS trust,
+    DROP COLUMN IF EXISTS intimacy,
+    DROP COLUMN IF EXISTS respect;

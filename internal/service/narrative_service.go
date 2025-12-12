@@ -295,5 +295,10 @@ func (s *NarrativeService) generateEvocation(ctx context.Context, userMessage st
 		return userMessage
 	}
 
-	return strings.TrimSpace(resp)
+	cleaned := strings.TrimSpace(resp)
+	if cleaned == "" {
+		// Si el LLM devolvio vacio, usamos el mensaje original como fallback
+		return userMessage
+	}
+	return cleaned
 }
