@@ -14,12 +14,18 @@ import (
 
 type MemoryRepository interface {
 	Create(ctx context.Context, memory domain.NarrativeMemory) error
-	Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int) ([]domain.NarrativeMemory, error)
+	Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int, minSimilarity float64) ([]ScoredMemory, error)
 	ListByCharacter(ctx context.Context, characterID uuid.UUID) ([]domain.NarrativeMemory, error)
 }
 
 type PgMemoryRepository struct {
 	pool *pgxpool.Pool
+}
+
+type ScoredMemory struct {
+	domain.NarrativeMemory
+	Similarity float64
+	Score      float64
 }
 
 func NewPgMemoryRepository(pool *pgxpool.Pool) *PgMemoryRepository {
@@ -64,28 +70,44 @@ func (r *PgMemoryRepository) Create(ctx context.Context, memory domain.Narrative
 	return err
 }
 
-func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int) ([]domain.NarrativeMemory, error) {
+func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int, minSimilarity float64) ([]ScoredMemory, error) {
 	if k <= 0 {
 		k = 5
 	}
 	const query = `
-		SELECT id, clone_profile_id, related_character_id, content, embedding, importance, emotional_weight, emotional_intensity, emotion_category, sentiment_label, happened_at, created_at, updated_at
+		SELECT 
+			id,
+			clone_profile_id,
+			related_character_id,
+			content,
+			embedding,
+			importance,
+			emotional_weight,
+			emotional_intensity,
+			emotion_category,
+			sentiment_label,
+			happened_at,
+			created_at,
+			updated_at,
+			(1 - (embedding <=> $2)) AS similarity,
+			(
+				(1 - (embedding <=> $2)) -- similitud vectorial
+				+ (COALESCE(emotional_intensity, 10) * 0.0005) -- refuerzo por carga emocional (ajuste 0.0005)
+				- (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0 * 0.01) -- olvido por antiguedad (dias)
+			) AS score
 		FROM narrative_memories
 		WHERE clone_profile_id = $1
-		ORDER BY (
-			(1 - (embedding <=> $2)) -- similitud vectorial
-			+ (COALESCE(emotional_intensity, 10) * 0.0005) -- refuerzo por carga emocional (ajuste 0.0005)
-			- (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0 * 0.01) -- olvido por antiguedad (dias)
-		) DESC
+		AND (1 - (embedding <=> $2)) >= $4 -- umbral para evitar falsos positivos por polisemia y topK forzado
+		ORDER BY score DESC
 		LIMIT $3
 	`
-	rows, err := r.pool.Query(ctx, query, profileID, queryEmbedding, k)
+	rows, err := r.pool.Query(ctx, query, profileID, queryEmbedding, k, minSimilarity)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	return scanMemories(rows)
+	return scanScoredMemories(rows)
 }
 
 func (r *PgMemoryRepository) ListByCharacter(ctx context.Context, characterID uuid.UUID) ([]domain.NarrativeMemory, error) {
@@ -133,6 +155,45 @@ func scanMemories(rows pgxRows) ([]domain.NarrativeMemory, error) {
 			}
 		}
 		memories = append(memories, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return memories, nil
+}
+
+func scanScoredMemories(rows pgxRows) ([]ScoredMemory, error) {
+	var memories []ScoredMemory
+	for rows.Next() {
+		var m domain.NarrativeMemory
+		var related sql.NullString
+		var similarity, score float64
+		if err := rows.Scan(
+			&m.ID,
+			&m.CloneProfileID,
+			&related,
+			&m.Content,
+			&m.Embedding,
+			&m.Importance,
+			&m.EmotionalWeight,
+			&m.EmotionalIntensity,
+			&m.EmotionCategory,
+			&m.SentimentLabel,
+			&m.HappenedAt,
+			&m.CreatedAt,
+			&m.UpdatedAt,
+			&similarity,
+			&score,
+		); err != nil {
+			return nil, err
+		}
+		if related.Valid {
+			id, err := uuid.Parse(related.String)
+			if err == nil {
+				m.RelatedCharacterID = &id
+			}
+		}
+		memories = append(memories, ScoredMemory{NarrativeMemory: m, Similarity: similarity, Score: score})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -19,6 +19,7 @@ import (
 	"clone-llm/internal/config"
 	"clone-llm/internal/domain"
 	"clone-llm/internal/llm"
+	"clone-llm/internal/repository"
 	"clone-llm/internal/service"
 )
 
@@ -444,14 +445,18 @@ func (m *memoryMemoryRepo) Create(ctx context.Context, memory domain.NarrativeMe
 }
 
 // Mock de Search: Filtra por string basico en lugar de vector
-func (m *memoryMemoryRepo) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int) ([]domain.NarrativeMemory, error) {
+func (m *memoryMemoryRepo) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int, minSimilarity float64) ([]repository.ScoredMemory, error) {
 	if m.filter == "" {
 		return nil, nil
 	}
-	var results []domain.NarrativeMemory
+	var results []repository.ScoredMemory
 	for _, mem := range m.memories {
 		if mem.CloneProfileID == profileID && strings.Contains(strings.ToLower(mem.Content), strings.ToLower(m.filter)) {
-			results = append(results, mem)
+			results = append(results, repository.ScoredMemory{
+				NarrativeMemory: mem,
+				Similarity:      1.0,
+				Score:           1.0,
+			})
 		}
 	}
 	return results, nil

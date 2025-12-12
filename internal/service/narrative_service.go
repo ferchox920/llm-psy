@@ -16,19 +16,45 @@ import (
 )
 
 const evocationPromptTemplate = `
-Estás actuando como el subconsciente de una IA. Tu objetivo es generar una "Query de Búsqueda" para recuerdos, PERO debes ser muy selectivo.
+Estas actuando como el subconsciente de una IA. Tu objetivo es generar una "Query de Busqueda" para recuerdos, PERO debes ser muy selectivo.
 
 Mensaje del Usuario: "%s"
 
-Instrucciones Críticas:
-1) DETECCIÓN DE NEGACIÓN: Si el usuario dice explícitamente "No hables de X" o "Olvida X", NO incluyas "X" en la salida. Genera conceptos opuestos o nada.
-2) FILTRO DE RUIDO: Si el mensaje es trivial (clima, tráfico, saludos) y no tiene carga emocional implícita, NO generes nada. Devuelve una cadena vacía.
-3) ASOCIACIÓN: Solo si hay una emoción o tema claro, extrae conceptos abstractos (ej: "mi padre me gritó" -> "autoridad conflicto miedo").
+Instrucciones Criticas:
+1) DETECCION DE NEGACION: Si el usuario dice explicitamente "No hables de X" o "Olvida X", NO incluyas "X" en la salida. Genera conceptos opuestos o nada.
+2) FILTRO DE RUIDO: Si el mensaje es trivial (clima, trafico, saludos) o describe abandono de habitos, y no tiene carga emocional implicita, NO generes nada. Devuelve una cadena vacia.
+3) ASOCIACION: Solo si hay una emocion o tema claro, extrae conceptos abstractos (ej: "mi padre me grito" -> "autoridad, conflicto, miedo").
+4) FORMATO: Devuelve de 1 a 6 conceptos abstractos separados por comas, sin frases completas.
 
-Salida (Texto plano o vacío):
+Ejemplos:
+- "Esta lloviendo muy fuerte" -> "lluvia, tierra mojada, nostalgia"
+- "Odio el trafico" -> ""
+- "Abandone el cigarrillo" -> ""
+- "Vi un funeral de descuentos" -> ""
+- "Mi papa nunca me abandono" -> ""
+- "La lluvia no me trae recuerdos" -> ""
+- "Me dejaron tirado en la terminal" -> "abandono, soledad, desamparo"
+- "Baja el tono cuando me hablas" -> "humillacion, amenaza, defensa"
+
+Salida (Texto plano o vacio):
 `
 
 // NarrativeService recupera contexto narrativo relevante para el clon.
+const rerankJudgePrompt = `
+Eres un juez de relevancia de memorias. Decide si esta memoria es pertinente al mensaje del usuario.
+Responde SOLO un JSON con esta forma exacta:
+{"use": true|false, "reason": "<explica en breve por que es o no relevante>"}
+Reglas:
+- Si es un modismo o uso no relacionado (ej: "funeral de descuentos"), use=false.
+- Si describe abandono de un habito (ej: "abandone el cigarrillo"), use=false.
+- Si el usuario niega el evento o lo descarta (ej: "nunca me abandono", "ya no me afecta"), use=false.
+- Si hay coincidencia clara de evento/emocion, use=true.
+No incluyas texto fuera del JSON.
+
+Usuario: %q
+Memoria: %q
+`
+
 type NarrativeService struct {
 	characterRepo repository.CharacterRepository
 	memoryRepo    repository.MemoryRepository
@@ -79,9 +105,38 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 			return "", fmt.Errorf("create embedding: %w", err)
 		}
 
-		memories, err = s.memoryRepo.Search(ctx, profileID, pgvector.NewVector(embed), 5)
+		const minSimilarity = 0.78 // tunable
+		const lowerSim = 0.72      // tunable
+		const upperSim = 0.82      // tunable
+
+		scoredMemories, err := s.memoryRepo.Search(ctx, profileID, pgvector.NewVector(embed), 5, minSimilarity)
 		if err != nil {
 			return "", fmt.Errorf("search memories: %w", err)
+		}
+		for _, sm := range scoredMemories {
+			content := strings.TrimSpace(sm.Content)
+			if len(content) > 80 {
+				content = content[:80] + "..."
+			}
+			switch {
+			case sm.Similarity < lowerSim:
+				fmt.Printf("[DIAGNOSTICO] descartado por baja similitud content=%q similarity=%.4f score=%.4f\n", content, sm.Similarity, sm.Score)
+				continue
+			case sm.Similarity > upperSim:
+				fmt.Printf("[DIAGNOSTICO] aceptado (alta similitud) content=%q similarity=%.4f score=%.4f\n", content, sm.Similarity, sm.Score)
+				memories = append(memories, sm.NarrativeMemory)
+				continue
+			default:
+				use, reason, err := s.judgeMemory(ctx, userMessage, sm.Content)
+				if err != nil {
+					fmt.Printf("warn: judge memory failed: %v\n", err)
+					continue
+				}
+				fmt.Printf("[DIAGNOSTICO] juez content=%q similarity=%.4f score=%.4f use=%t reason=%q\n", content, sm.Similarity, sm.Score, use, reason)
+				if use {
+					memories = append(memories, sm.NarrativeMemory)
+				}
+			}
 		}
 	}
 
@@ -328,6 +383,10 @@ func (s *NarrativeService) generateEvocation(ctx context.Context, userMessage st
 		fmt.Printf("[DIAGNOSTICO] Negación explícita detectada, silencio.\n")
 		return ""
 	}
+	if hasNegationSemantic(msgLower) {
+		fmt.Printf("[DIAGNOSTICO] Negación semántica detectada, silencio.\n")
+		return ""
+	}
 
 	prompt := fmt.Sprintf(evocationPromptTemplate, strings.TrimSpace(userMessage))
 	resp, err := s.llmClient.Generate(ctx, prompt)
@@ -344,4 +403,50 @@ func (s *NarrativeService) generateEvocation(ctx context.Context, userMessage st
 		return ""
 	}
 	return cleaned
+}
+
+func hasNegationSemantic(msgLower string) bool {
+	markers := []string{"nunca", "jamás", "no me", "no ", "ya no"}
+	triggers := []string{"abandon", "funeral", "recuerd", "lluvia"}
+	hasMarker := false
+	for _, m := range markers {
+		if strings.Contains(msgLower, m) {
+			hasMarker = true
+			break
+		}
+	}
+	if !hasMarker {
+		return false
+	}
+	for _, t := range triggers {
+		if strings.Contains(msgLower, t) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *NarrativeService) judgeMemory(ctx context.Context, userMessage, memoryContent string) (bool, string, error) {
+	prompt := fmt.Sprintf(rerankJudgePrompt, strings.TrimSpace(userMessage), strings.TrimSpace(memoryContent))
+	resp, err := s.llmClient.Generate(ctx, prompt)
+	if err != nil {
+		return false, "llm error", err
+	}
+
+	clean := strings.TrimSpace(resp)
+	clean = strings.TrimPrefix(clean, "```json")
+	clean = strings.TrimPrefix(clean, "```JSON")
+	clean = strings.TrimPrefix(clean, "```")
+	clean = strings.TrimSuffix(clean, "```")
+	clean = strings.TrimSpace(clean)
+
+	var verdict struct {
+		Use    bool   `json:"use"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(clean), &verdict); err != nil {
+		return false, "invalid judge json", err
+	}
+
+	return verdict.Use, verdict.Reason, nil
 }
