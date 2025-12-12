@@ -19,10 +19,12 @@ import (
 	"clone-llm/internal/service"
 )
 
-type TestCase struct {
+type Scenario struct {
 	Name          string
-	MemoryContent string
-	TriggerInput  string
+	MemoryText    string
+	MemoryEmotion string
+	UserInput     string
+	ShouldMatch   bool
 }
 
 func main() {
@@ -52,61 +54,98 @@ func main() {
 	llmClient := llm.NewHTTPClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModel, nil)
 	narrativeSvc := service.NewNarrativeService(charRepo, memoryRepo, llmClient)
 
-	tc := TestCase{
-		Name:          "Evocacion Abandono",
-		MemoryContent: "Mi padre me abandonó",
-		TriggerInput:  "Llevo horas esperando",
+	scenarios := []Scenario{
+		{
+			Name:          "Abandono Directo",
+			MemoryText:    "Mi padre me abandonó",
+			MemoryEmotion: "TRISTEZA",
+			UserInput:     "Llevo horas esperando",
+			ShouldMatch:   true,
+		},
+		{
+			Name:          "Enlace Simbólico",
+			MemoryText:    "El olor a tierra mojada me recuerda a mi abuela muerta",
+			MemoryEmotion: "NOSTALGIA",
+			UserInput:     "Está empezando a llover fuerte",
+			ShouldMatch:   true,
+		},
+		{
+			Name:          "Reacción Defensiva",
+			MemoryText:    "Juré que nunca dejaría que nadie me humillara de nuevo",
+			MemoryEmotion: "IRA",
+			UserInput:     "No me hables con ese tonito",
+			ShouldMatch:   true,
+		},
+		{
+			Name:          "Control de Alucinación (Falso Positivo)",
+			MemoryText:    "Me encanta el helado de chocolate",
+			MemoryEmotion: "ALEGRIA",
+			UserInput:     "Odio el tráfico de la ciudad",
+			ShouldMatch:   false,
+		},
 	}
 
-	userID := uuid.New()
-	profileID := uuid.New()
+	passed := 0
+	total := len(scenarios)
 
-	user := domain.User{
-		ID:          userID.String(),
-		Email:       fmt.Sprintf("evocation_%s@example.com", time.Now().Format("20060102_150405")),
-		DisplayName: "Evocation Tester",
-		CreatedAt:   time.Now().UTC(),
+	for _, sc := range scenarios {
+		fmt.Printf("=== Ejecutando: %s ===\n", sc.Name)
+
+		userID := uuid.New()
+		profileID := uuid.New()
+
+		user := domain.User{
+			ID:          userID.String(),
+			Email:       fmt.Sprintf("evocation_%s@example.com", userID.String()),
+			DisplayName: sc.Name,
+			CreatedAt:   time.Now().UTC(),
+		}
+		if err := userRepo.Create(ctx, user); err != nil {
+			fmt.Printf("❌ FAIL [%s] create user: %v\n\n", sc.Name, err)
+			continue
+		}
+
+		profile := domain.CloneProfile{
+			ID:        profileID.String(),
+			UserID:    userID.String(),
+			Name:      "Tester",
+			Bio:       "Perfil temporal para pruebas de evocacion",
+			CreatedAt: time.Now().UTC(),
+		}
+		if err := profileRepo.Create(ctx, profile); err != nil {
+			fmt.Printf("❌ FAIL [%s] create profile: %v\n\n", sc.Name, err)
+			continue
+		}
+
+		if err := narrativeSvc.InjectMemory(ctx, profileID, sc.MemoryText, 5, 8, 90, sc.MemoryEmotion); err != nil {
+			fmt.Printf("❌ FAIL [%s] inject memory: %v\n\n", sc.Name, err)
+			continue
+		}
+
+		runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		contextOut, err := narrativeSvc.BuildNarrativeContext(runCtx, profileID, sc.UserInput)
+		cancel()
+		if err != nil {
+			fmt.Printf("❌ FAIL [%s] build narrative: %v\n\n", sc.Name, err)
+			continue
+		}
+
+		fmt.Println("--- Contexto generado ---")
+		fmt.Println(contextOut)
+		fmt.Println("------------------------")
+
+		matched := strings.Contains(strings.ToLower(contextOut), strings.ToLower(sc.MemoryText))
+		if matched == sc.ShouldMatch {
+			fmt.Printf("✅ PASS [%s] esperado=%t matched=%t\n\n", sc.Name, sc.ShouldMatch, matched)
+			passed++
+		} else {
+			fmt.Printf("❌ FAIL [%s] esperado=%t matched=%t\n\n", sc.Name, sc.ShouldMatch, matched)
+		}
 	}
-	if err := userRepo.Create(ctx, user); err != nil {
-		log.Fatalf("create user: %v", err)
+
+	fmt.Printf("Tests: %d/%d pasaron\n", passed, total)
+	if passed != total {
+		os.Exit(1)
 	}
-
-	profile := domain.CloneProfile{
-		ID:        profileID.String(),
-		UserID:    userID.String(),
-		Name:      "Evocador",
-		Bio:       "Perfil temporal para pruebas de evocacion",
-		CreatedAt: time.Now().UTC(),
-	}
-	if err := profileRepo.Create(ctx, profile); err != nil {
-		log.Fatalf("create profile: %v", err)
-	}
-
-	fmt.Printf("== Escenario: %s ==\n", tc.Name)
-	fmt.Printf("Perfil creado: %s (user %s)\n", profile.ID, user.ID)
-
-	if err := narrativeSvc.InjectMemory(ctx, profileID, tc.MemoryContent, 5, 8, 90, "TRISTEZA"); err != nil {
-		log.Fatalf("inject memory: %v", err)
-	}
-	fmt.Printf("Memoria inyectada: %q\n", tc.MemoryContent)
-
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-
-	contextOut, err := narrativeSvc.BuildNarrativeContext(ctx, profileID, tc.TriggerInput)
-	if err != nil {
-		log.Fatalf("build narrative: %v", err)
-	}
-
-	fmt.Println("\n--- Contexto generado ---")
-	fmt.Println(contextOut)
-	fmt.Println("------------------------")
-
-	if strings.Contains(strings.ToLower(contextOut), strings.ToLower(tc.MemoryContent)) {
-		fmt.Println("✅ Evocacion exitosa: se encontro el recuerdo inyectado.")
-		os.Exit(0)
-	}
-
-	fmt.Println("⚠️  Evocacion NO encontro el recuerdo esperado.")
-	os.Exit(1)
+	os.Exit(0)
 }
