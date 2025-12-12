@@ -97,9 +97,25 @@ func main() {
 			}
 		}
 
-		runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		contextOut, err := narrativeSvc.BuildNarrativeContext(runCtx, env.profileID, sc.UserInput)
-		cancel()
+		contextOut, err := func() (string, error) {
+			origStdout := os.Stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
+			done := make(chan struct{})
+			go func() {
+				_, _ = io.Copy(writer, r)
+				close(done)
+			}()
+
+			runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+			defer cancel()
+			out, innerErr := narrativeSvc.BuildNarrativeContext(runCtx, env.profileID, sc.UserInput)
+
+			_ = w.Close()
+			<-done
+			os.Stdout = origStdout
+			return out, innerErr
+		}()
 		if err != nil {
 			fmt.Fprintf(writer, "❌ FAIL [%s] build narrative: %v\n\n", sc.Name, err)
 			continue

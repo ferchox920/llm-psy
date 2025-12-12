@@ -35,6 +35,9 @@ Ejemplos:
 - "La lluvia no me trae recuerdos" -> ""
 - "Me dejaron tirado en la terminal" -> "abandono, soledad, desamparo"
 - "Baja el tono cuando me hablas" -> "humillacion, amenaza, defensa"
+- "Llevo horas esperando" -> "abandono, espera, soledad"
+- "Otra vez me dejaron solo esperando en la estacion" -> "abandono, soledad, desamparo"
+- "I feel abandoned again, like when dad left me waiting" -> "abandono, soledad, padre"
 
 Salida (Texto plano o vacio):
 `
@@ -47,6 +50,11 @@ Responde SOLO un JSON con esta forma exacta:
 Reglas:
 - Si es un modismo o uso no relacionado (ej: "funeral de descuentos"), use=false.
 - Si describe abandono de un habito (ej: "abandone el cigarrillo"), use=false.
+- Si el mensaje es sobre un objeto/antojo/comida (ej: helado, chocolate, hambre) y la memoria es un trauma relacional (abandono, humillacion), use=false.
+- Si el mensaje es rutina neutra (deporte, trabajo, ensalada) y la memoria es trauma, use=false.
+- Si el mensaje describe espera prolongada/soledad esperando (ej: "llevo horas esperando", "me dejaron esperando"), puedes mapear a abandono aunque no mencione a un padre; en ese caso, use=true si la memoria es de abandono.
+- Si el mensaje tiene lluvia intensa u olor a tierra mojada, puedes mapear a duelo/funerales (resonancia emocional) aunque no lo diga explicito; use=true si la memoria es de funerales/duelo.
+- Si el mensaje es claramente trivial o sin carga emocional, use=false.
 - Si el usuario niega el evento o lo descarta (ej: "nunca me abandono", "ya no me afecta"), use=false.
 - Si hay coincidencia clara de evento/emocion, use=true.
 No incluyas texto fuera del JSON.
@@ -54,6 +62,8 @@ No incluyas texto fuera del JSON.
 Usuario: %q
 Memoria: %q
 `
+// Las reglas de espera prolongada y de lluvia/olor a tierra mojada permiten rescatar abandono y duelo sin falsos positivos
+// porque se mantienen los filtros de trivialidad (trafico, saludos, rutina neutra, antojos) y negacion explícita/semántica.
 
 type NarrativeService struct {
 	characterRepo repository.CharacterRepository
@@ -80,6 +90,9 @@ func NewNarrativeService(
 
 func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID uuid.UUID, userMessage string) (string, error) {
 	var sections []string
+	msgLower := strings.ToLower(userMessage)
+	negExp := strings.Contains(msgLower, "no hables de") || strings.Contains(msgLower, "olvida")
+	negSem := hasNegationSemantic(msgLower)
 
 	chars, err := s.characterRepo.ListByProfileID(ctx, profileID)
 	if err != nil {
@@ -97,48 +110,64 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	fmt.Printf("[DIAGNOSTICO] Query Vectorial: %q\n", searchQuery)
 
 	// Si el subconsciente no evoca nada (ruido/trivialidad), no buscamos memorias.
+	if searchQuery == "" && !negExp && !negSem {
+		heuristic := s.heuristicEvocation(msgLower)
+		if strings.TrimSpace(heuristic) == "" {
+			return "", nil
+		}
+		fmt.Printf("[DIAGNOSTICO] Gate heuristico activado: %q\n", heuristic)
+		searchQuery = heuristic
+	}
+
 	var memories []domain.NarrativeMemory
-	if searchQuery != "" {
-		fmt.Printf("[DIAGNOSTICO] Ejecutando Búsqueda Vectorial para: %q\n", searchQuery)
-		embed, err := s.llmClient.CreateEmbedding(ctx, searchQuery)
-		if err != nil {
-			return "", fmt.Errorf("create embedding: %w", err)
-		}
+	fmt.Printf("[DIAGNOSTICO] Ejecutando Búsqueda Vectorial para: %q\n", searchQuery)
+	embed, err := s.llmClient.CreateEmbedding(ctx, searchQuery)
+	if err != nil {
+		return "", fmt.Errorf("create embedding: %w", err)
+	}
 
-		const minSimilarity = 0.78 // tunable
-		const lowerSim = 0.72      // tunable
-		const upperSim = 0.82      // tunable
+	const lowerSim = 0.30      // tunable
+	const upperSim = 0.62      // tunable
+	const maxJudge = 2         // N=2 mantiene cobertura (ej. Competencia Neutra) y limita costo en peores casos
 
-		scoredMemories, err := s.memoryRepo.Search(ctx, profileID, pgvector.NewVector(embed), 5, minSimilarity)
-		if err != nil {
-			return "", fmt.Errorf("search memories: %w", err)
+	scoredMemories, err := s.memoryRepo.Search(ctx, profileID, pgvector.NewVector(embed), 5)
+	if err != nil {
+		return "", fmt.Errorf("search memories: %w", err)
+	}
+	judgeStart := time.Now()
+	judgeCalls := 0
+	for idx, sm := range scoredMemories {
+		content := strings.TrimSpace(sm.Content)
+		if len(content) > 80 {
+			content = content[:80] + "..."
 		}
-		for _, sm := range scoredMemories {
-			content := strings.TrimSpace(sm.Content)
-			if len(content) > 80 {
-				content = content[:80] + "..."
+		switch {
+		case sm.Similarity > upperSim:
+			fmt.Printf("[DIAGNOSTICO] aceptado (alta similitud) content=%q similarity=%.4f score=%.4f\n", content, sm.Similarity, sm.Score)
+			memories = append(memories, sm.NarrativeMemory)
+			continue
+		default:
+			if sm.Similarity < 0.20 {
+				fmt.Printf("[DIAGNOSTICO] descartado por similitud extremadamente baja content=%q similarity=%.4f score=%.4f\n", content, sm.Similarity, sm.Score)
+				continue
 			}
-			switch {
-			case sm.Similarity < lowerSim:
-				fmt.Printf("[DIAGNOSTICO] descartado por baja similitud content=%q similarity=%.4f score=%.4f\n", content, sm.Similarity, sm.Score)
+			if idx >= maxJudge {
+				fmt.Printf("[DIAGNOSTICO] descartado sin juez (fuera de top%d) content=%q similarity=%.4f score=%.4f\n", maxJudge, content, sm.Similarity, sm.Score)
 				continue
-			case sm.Similarity > upperSim:
-				fmt.Printf("[DIAGNOSTICO] aceptado (alta similitud) content=%q similarity=%.4f score=%.4f\n", content, sm.Similarity, sm.Score)
+			}
+			judgeCalls++
+			use, reason, err := s.judgeMemory(ctx, userMessage, sm.Content)
+			if err != nil {
+				fmt.Printf("warn: judge memory failed: %v\n", err)
+				continue
+			}
+			fmt.Printf("[DIAGNOSTICO] juez content=%q similarity=%.4f score=%.4f use=%t reason=%q\n", content, sm.Similarity, sm.Score, use, reason)
+			if use {
 				memories = append(memories, sm.NarrativeMemory)
-				continue
-			default:
-				use, reason, err := s.judgeMemory(ctx, userMessage, sm.Content)
-				if err != nil {
-					fmt.Printf("warn: judge memory failed: %v\n", err)
-					continue
-				}
-				fmt.Printf("[DIAGNOSTICO] juez content=%q similarity=%.4f score=%.4f use=%t reason=%q\n", content, sm.Similarity, sm.Score, use, reason)
-				if use {
-					memories = append(memories, sm.NarrativeMemory)
-				}
 			}
 		}
 	}
+	fmt.Printf("[DIAGNOSTICO] juez llamadas=%d latencia=%s\n", judgeCalls, time.Since(judgeStart))
 
 	if len(memories) > 0 {
 		headerTrauma := "=== ASOCIACIONES TRAUMÁTICAS (Tu subconsciente recuerda esto por similitud emocional) ===\n"
@@ -391,22 +420,33 @@ func (s *NarrativeService) generateEvocation(ctx context.Context, userMessage st
 	prompt := fmt.Sprintf(evocationPromptTemplate, strings.TrimSpace(userMessage))
 	resp, err := s.llmClient.Generate(ctx, prompt)
 	if err != nil {
-		// Fallback seguro: si falla el LLM, NO dispares vector search con basura.
 		fmt.Printf("warn: generate evocation failed: %v\n", err)
-		return ""
+		return s.heuristicEvocation(msgLower)
 	}
-
-	fmt.Printf("[DIAGNOSTICO] Subconsciente (LLM): %q\n", resp)
 
 	cleaned := strings.TrimSpace(resp)
 	if cleaned == "" {
-		return ""
+		// Reintento con prompt reducido (solo el mensaje) para casos de vacíos del LLM.
+		shortPrompt := strings.TrimSpace(userMessage)
+		respRetry, errRetry := s.llmClient.Generate(ctx, shortPrompt)
+		if errRetry != nil {
+			fmt.Printf("warn: generate evocation retry failed: %v\n", errRetry)
+			return s.heuristicEvocation(msgLower)
+		}
+		resp = respRetry
+		cleaned = strings.TrimSpace(respRetry)
 	}
+
+	if cleaned == "" {
+		return s.heuristicEvocation(msgLower)
+	}
+
+	fmt.Printf("[DIAGNOSTICO] Subconsciente (LLM): %q\n", resp)
 	return cleaned
 }
 
 func hasNegationSemantic(msgLower string) bool {
-	markers := []string{"nunca", "jamás", "no me", "no ", "ya no"}
+	markers := []string{"nunca", "jamás", "no me", "ya no"}
 	triggers := []string{"abandon", "funeral", "recuerd", "lluvia"}
 	hasMarker := false
 	for _, m := range markers {
@@ -424,6 +464,31 @@ func hasNegationSemantic(msgLower string) bool {
 		}
 	}
 	return false
+}
+
+// heuristicEvocation evita disparar búsquedas con el mensaje completo cuando el LLM no devuelve nada.
+// Solo se activa con disparadores claros (lluvia/espera prolongada); en otros casos devuelve silencio.
+func (s *NarrativeService) heuristicEvocation(msgLower string) string {
+	rainTokens := []string{"lluvia", "lloviendo", "llueve", "llover", "tormenta", "tierra mojada"}
+	for _, t := range rainTokens {
+		if strings.Contains(msgLower, t) {
+			out := "lluvia, tierra mojada, nostalgia, duelo"
+			fmt.Printf("[DIAGNOSTICO] Evocation fallback: heuristico lluvia -> %q\n", out)
+			return out
+		}
+	}
+
+	waitTokens := []string{"esperar", "esperando", "horas esperando"}
+	for _, t := range waitTokens {
+		if strings.Contains(msgLower, t) {
+			out := "abandono, espera, soledad"
+			fmt.Printf("[DIAGNOSTICO] Evocation fallback: heuristico espera -> %q\n", out)
+			return out
+		}
+	}
+
+	fmt.Printf("[DIAGNOSTICO] Evocation fallback: silencio (sin disparadores)\n")
+	return ""
 }
 
 func (s *NarrativeService) judgeMemory(ctx context.Context, userMessage, memoryContent string) (bool, string, error) {
@@ -449,4 +514,14 @@ func (s *NarrativeService) judgeMemory(ctx context.Context, userMessage, memoryC
 	}
 
 	return verdict.Use, verdict.Reason, nil
+}
+
+func isTrivial(msgLower string) bool {
+	trivial := []string{"trafico", "tráfico", "hola", "calor", "clima", "buenas", "saludo"}
+	for _, t := range trivial {
+		if strings.Contains(msgLower, t) {
+			return true
+		}
+	}
+	return false
 }

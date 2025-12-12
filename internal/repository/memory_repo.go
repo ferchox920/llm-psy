@@ -14,7 +14,7 @@ import (
 
 type MemoryRepository interface {
 	Create(ctx context.Context, memory domain.NarrativeMemory) error
-	Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int, minSimilarity float64) ([]ScoredMemory, error)
+	Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int) ([]ScoredMemory, error)
 	ListByCharacter(ctx context.Context, characterID uuid.UUID) ([]domain.NarrativeMemory, error)
 }
 
@@ -70,7 +70,7 @@ func (r *PgMemoryRepository) Create(ctx context.Context, memory domain.Narrative
 	return err
 }
 
-func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int, minSimilarity float64) ([]ScoredMemory, error) {
+func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int) ([]ScoredMemory, error) {
 	if k <= 0 {
 		k = 5
 	}
@@ -97,11 +97,10 @@ func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, qu
 			) AS score
 		FROM narrative_memories
 		WHERE clone_profile_id = $1
-		AND (1 - (embedding <=> $2)) >= $4 -- umbral para evitar falsos positivos por polisemia y topK forzado
 		ORDER BY score DESC
 		LIMIT $3
 	`
-	rows, err := r.pool.Query(ctx, query, profileID, queryEmbedding, k, minSimilarity)
+	rows, err := r.pool.Query(ctx, query, profileID, queryEmbedding, k)
 	if err != nil {
 		return nil, err
 	}
