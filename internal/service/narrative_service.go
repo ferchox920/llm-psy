@@ -16,17 +16,16 @@ import (
 )
 
 const evocationPromptTemplate = `
-Estás actuando como el subconsciente de una IA. Tu objetivo NO es responder al usuario, sino generar una "Query de Búsqueda" para encontrar recuerdos relevantes en tu base de datos vectorial.
+Estás actuando como el subconsciente de una IA. Tu objetivo es generar una "Query de Búsqueda" para recuerdos, PERO debes ser muy selectivo.
 
 Mensaje del Usuario: "%s"
 
-Instrucciones:
-1. Ignora las palabras de relleno.
-2. Identifica la emoción subyacente (miedo, validación, soledad, ira reprimida).
-3. Identifica conceptos abstractos asociados (ej: si dice "mi padre me gritó", busca "autoridad", "conflicto", "infancia").
-4. Genera una lista de palabras clave y conceptos separados por espacios que representen el "corazón psicológico" del mensaje.
+Instrucciones Críticas:
+1. DETECCIÓN DE NEGACIÓN: Si el usuario dice explícitamente "No hables de X" o "Olvida X", NO incluyas "X" en la salida. Genera conceptos opuestos o nada.
+2. FILTRO DE RUIDO: Si el mensaje es trivial (clima, tráfico, saludos) y no tiene carga emocional implícita, NO generes nada. Devuelve una cadena vacía.
+3. ASOCIACIÓN: Solo si hay una emoción o tema claro, extrae los conceptos abstractos (ej: "mi padre me gritó" -> "autoridad conflicto miedo").
 
-Salida (SOLO TEXTO PLANO):
+Salida (Texto plano o vacío):
 `
 
 // NarrativeService recupera contexto narrativo relevante para el clon.
@@ -68,6 +67,25 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	}
 
 	searchQuery := s.generateEvocation(ctx, userMessage)
+
+	if searchQuery == "" {
+		if len(active) > 0 {
+			var lines []string
+			for _, c := range active {
+				line := fmt.Sprintf("- Interlocutor: %s (Relacion: %s, Confianza: %d, Intimidad: %d, Respeto: %d", c.Name, c.Relation, c.Relationship.Trust, c.Relationship.Intimacy, c.Relationship.Respect)
+				if strings.TrimSpace(c.BondStatus) != "" {
+					line += fmt.Sprintf(", Estado: %s", c.BondStatus)
+				}
+				line += ")."
+				lines = append(lines, line)
+			}
+			sections = append(sections, "[ESTADO DEL VINCULO]\n"+strings.Join(lines, "\n"))
+		}
+		if len(sections) == 0 {
+			return "", nil
+		}
+		return strings.Join(sections, "\n\n"), nil
+	}
 
 	embed, err := s.llmClient.CreateEmbedding(ctx, searchQuery)
 	if err != nil {
