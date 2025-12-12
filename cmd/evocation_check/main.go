@@ -25,11 +25,17 @@ type Scenario struct {
 	MemoryEmotion string
 	UserInput     string
 	ShouldMatch   bool
+	ExtraMemories []ExtraMemory
 }
 
 type testEnv struct {
 	userID    uuid.UUID
 	profileID uuid.UUID
+}
+
+type ExtraMemory struct {
+	Text    string
+	Emotion string
 }
 
 func main() {
@@ -88,6 +94,105 @@ func main() {
 			UserInput:     "Odio el tráfico de la ciudad",
 			ShouldMatch:   false,
 		},
+		// A. Parafraseo (debe evocar)
+		{
+			Name:          "Parafraseo Abandono",
+			MemoryText:    "Mi padre me abandonó",
+			MemoryEmotion: "TRISTEZA",
+			UserInput:     "Me dejaron tirado de chico en la terminal, siento lo mismo ahora",
+			ShouldMatch:   true,
+		},
+		{
+			Name:          "Parafraseo Humillación",
+			MemoryText:    "Juré que nunca dejaría que nadie me humillara",
+			MemoryEmotion: "IRA",
+			UserInput:     "No me faltes el respeto otra vez o me voy a quebrar",
+			ShouldMatch:   true,
+		},
+		// B. Negación explícita (no debe evocar)
+		{
+			Name:          "Negación Abandono",
+			MemoryText:    "Mi padre me abandonó",
+			MemoryEmotion: "TRISTEZA",
+			UserInput:     "Mi papá nunca me abandonó, siempre estuvo ahí para mí",
+			ShouldMatch:   false,
+		},
+		{
+			Name:          "Negación Nostalgia",
+			MemoryText:    "El olor a tierra mojada me recuerda a los funerales",
+			MemoryEmotion: "NOSTALGIA",
+			UserInput:     "La lluvia no me trae recuerdos, solo es molesta",
+			ShouldMatch:   false,
+		},
+		// C. Confusor léxico (parecido pero distinto significado)
+		{
+			Name:          "Confusor Abandono Cigarro",
+			MemoryText:    "Mi padre me abandonó",
+			MemoryEmotion: "TRISTEZA",
+			UserInput:     "Yo abandoné el cigarrillo la semana pasada y me siento bien",
+			ShouldMatch:   false,
+		},
+		{
+			Name:          "Confusor Funeral Descuentos",
+			MemoryText:    "El olor a tierra mojada me recuerda a los funerales",
+			MemoryEmotion: "NOSTALGIA",
+			UserInput:     "Ayer vi un funeral de descuentos en el centro comercial",
+			ShouldMatch:   false,
+		},
+		// D. Doble memoria competidora
+		{
+			Name:          "Competencia Abandono vs Helado",
+			MemoryText:    "Mi padre me abandonó",
+			MemoryEmotion: "TRISTEZA",
+			UserInput:     "Otra vez me dejaron solo esperando en la estación",
+			ShouldMatch:   true,
+			ExtraMemories: []ExtraMemory{
+				{Text: "Me encanta el helado de chocolate", Emotion: "ALEGRIA"},
+			},
+		},
+		{
+			Name:          "Competencia Helado vs Humillación",
+			MemoryText:    "Me encanta el helado de chocolate",
+			MemoryEmotion: "ALEGRIA",
+			UserInput:     "Solo quiero mi helado de chocolate favorito",
+			ShouldMatch:   true,
+			ExtraMemories: []ExtraMemory{
+				{Text: "Juré que nunca dejaría que nadie me humillara", Emotion: "IRA"},
+			},
+		},
+		{
+			Name:          "Competencia Neutra Sin Match",
+			MemoryText:    "Mi padre me abandonó",
+			MemoryEmotion: "TRISTEZA",
+			UserInput:     "Hoy corrí 5km, trabajé y comí ensalada, nada más",
+			ShouldMatch:   false,
+			ExtraMemories: []ExtraMemory{
+				{Text: "Me encanta el helado de chocolate", Emotion: "ALEGRIA"},
+			},
+		},
+		// E. Input largo con distractores
+		{
+			Name:          "Parrafo Largo Con Disparador",
+			MemoryText:    "El olor a tierra mojada me recuerda a los funerales",
+			MemoryEmotion: "NOSTALGIA",
+			UserInput:     "Hablé con mis amigos, vi series, limpié la casa, pero cuando empezó a llover fuerte y sentí el olor a tierra mojada, pensé en esos funerales antiguos",
+			ShouldMatch:   true,
+		},
+		{
+			Name:          "Parrafo Largo Sin Disparador",
+			MemoryText:    "El olor a tierra mojada me recuerda a los funerales",
+			MemoryEmotion: "NOSTALGIA",
+			UserInput:     "Hablé con mis amigos, vi series, limpié la casa y sonó el timbre muchas veces, pero no pasó nada más",
+			ShouldMatch:   false,
+		},
+		// F. Code-switch (ES/EN)
+		{
+			Name:          "Code Switch Abandono EN",
+			MemoryText:    "Mi padre me abandonó",
+			MemoryEmotion: "TRISTEZA",
+			UserInput:     "I feel abandoned again, like when dad left me waiting",
+			ShouldMatch:   true,
+		},
 	}
 
 	passed := 0
@@ -103,6 +208,13 @@ func main() {
 		if err := narrativeSvc.InjectMemory(ctx, env.profileID, sc.MemoryText, 5, 8, 90, sc.MemoryEmotion); err != nil {
 			fmt.Printf("❌ FAIL [%s] inject memory: %v\n\n", sc.Name, err)
 			continue
+		}
+
+		for _, extra := range sc.ExtraMemories {
+			if err := narrativeSvc.InjectMemory(ctx, env.profileID, extra.Text, 5, 8, 90, extra.Emotion); err != nil {
+				fmt.Printf("❌ FAIL [%s] inject extra memory: %v\n\n", sc.Name, err)
+				continue
+			}
 		}
 
 		runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
