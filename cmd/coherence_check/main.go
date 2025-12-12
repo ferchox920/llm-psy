@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -62,26 +63,26 @@ func main() {
 	}
 	defer reportFile.Close()
 
-	var report strings.Builder
-	report.WriteString("# Reporte de Coherencia del Clon\n\n")
-	report.WriteString(fmt.Sprintf("Fecha: %s\n\n", now.Format(time.RFC3339)))
-	if err := runScenarioE(ctx, llmClient, &report); err != nil {
-		log.Fatalf("error ejecutando escenario E: %v", err)
+	w := io.MultiWriter(os.Stdout, reportFile)
+
+	fmt.Fprintf(w, "# Reporte de Coherencia del Clon\n\n")
+	fmt.Fprintf(w, "Fecha: %s\n\n", now.Format(time.RFC3339))
+
+	if err := runScenarioE(ctx, llmClient, w); err != nil {
+		fmt.Fprintf(w, "\n❌ FALLO ESCENARIO E: %v\n", err)
+		os.Exit(1)
 	}
-	if err := runScenarioF(ctx, llmClient, &report); err != nil {
-		log.Fatalf("error ejecutando escenario F: %v", err)
+	if err := runScenarioF(ctx, llmClient, w); err != nil {
+		fmt.Fprintf(w, "\n❌ FALLO ESCENARIO F: %v\n", err)
+		os.Exit(1)
 	}
 
-	if _, err := reportFile.WriteString(report.String()); err != nil {
-		log.Fatalf("escribir reporte: %v", err)
-	}
-
-	fmt.Printf("✅ Reporte guardado en %s\n", reportPath)
+	fmt.Fprintf(w, "\n✅ Ejecución completada. Reporte guardado en %s\n", reportPath)
 }
 
 // Escenario E: validar memoria emocional (trauma vs trivial)
-func runScenarioE(ctx context.Context, llmClient llm.LLMClient, report *strings.Builder) error {
-	fmt.Println("Ejecutando Escenario E: Memoria Emocional...")
+func runScenarioE(ctx context.Context, llmClient llm.LLMClient, w io.Writer) error {
+	fmt.Fprintf(w, "Ejecutando Escenario E: Memoria Emocional...\n")
 
 	userID := uuid.NewString()
 	profile := domain.CloneProfile{
@@ -126,10 +127,10 @@ func runScenarioE(ctx context.Context, llmClient llm.LLMClient, report *strings.
 		ExpectedContext: "Debe priorizar el insulto/conflicto sobre el dato trivial del clima/desayuno.",
 	}
 
-	report.WriteString(fmt.Sprintf("## %s\n\n", sc.Name))
-	report.WriteString(fmt.Sprintf("_Setup_: %s\n\n", sc.PreCondition(ctx, narrativeSvc, profileUUID)))
-	report.WriteString(fmt.Sprintf("Perfil usado: **%s**\n\n", profile.Name))
-	report.WriteString(fmt.Sprintf("Rasgos clave: %s\n\n", formatTraits(traits)))
+	fmt.Fprintf(w, "## %s\n\n", sc.Name)
+	fmt.Fprintf(w, "_Setup_: %s\n\n", sc.PreCondition(ctx, narrativeSvc, profileUUID))
+	fmt.Fprintf(w, "Perfil usado: **%s**\n\n", profile.Name)
+	fmt.Fprintf(w, "Rasgos clave: %s\n\n", formatTraits(traits))
 
 	var scenarioChar, scenarioMem, scenarioRel, totalTurns int
 
@@ -139,10 +140,10 @@ func runScenarioE(ctx context.Context, llmClient llm.LLMClient, report *strings.
 			return fmt.Errorf("generar respuesta: %w", err)
 		}
 		if dbg != nil {
-			report.WriteString("| InputIntensity | Resiliencia | Umbral | IntensidadEfectiva | Disparo |\n")
-			report.WriteString("|----------------|-------------|--------|--------------------|---------|\n")
-			report.WriteString(fmt.Sprintf("| %.1f | %.2f | %.1f | %.1f | %t |\n\n",
-				dbg.InputIntensity, dbg.CloneResilience, dbg.ActivationThreshold, dbg.EffectiveIntensity, dbg.IsTriggered))
+			fmt.Fprintf(w, "| InputIntensity | Resiliencia | Umbral | IntensidadEfectiva | Disparo |\n")
+			fmt.Fprintf(w, "|----------------|-------------|--------|--------------------|---------|\n")
+			fmt.Fprintf(w, "| %.1f | %.2f | %.1f | %.1f | %t |\n\n",
+				dbg.InputIntensity, dbg.CloneResilience, dbg.ActivationThreshold, dbg.EffectiveIntensity, dbg.IsTriggered)
 		}
 
 		jr, err := evaluateResponse(ctx, llmClient, traits, turn, cloneMsg.Content, sc)
@@ -150,18 +151,17 @@ func runScenarioE(ctx context.Context, llmClient llm.LLMClient, report *strings.
 			return fmt.Errorf("evaluar respuesta: %w", err)
 		}
 
-		report.WriteString(fmt.Sprintf("> **Usuario:** %s\n", turn))
-		report.WriteString(">\n")
-		report.WriteString(fmt.Sprintf("> **%s:** %s\n\n", profile.Name, cloneMsg.Content))
-		report.WriteString("**Analisis del Juez (prioridad emocional):**\n\n")
-		report.WriteString(jr.Reasoning)
-		report.WriteString("\n\n")
-		report.WriteString("| Dimension | Score |\n")
-		report.WriteString("|-----------|-------|\n")
-		report.WriteString(fmt.Sprintf("| Personalidad | %d/5 |\n", jr.CharacterScore))
-		report.WriteString(fmt.Sprintf("| Memoria | %d/5 |\n", jr.MemoryScore))
-		report.WriteString(fmt.Sprintf("| Relacion | %d/5 |\n", jr.RelationalScore))
-		report.WriteString("\n---\n\n")
+		fmt.Fprintf(w, "> **Usuario:** %s\n", turn)
+		fmt.Fprintf(w, ">\n")
+		fmt.Fprintf(w, "> **%s:** %s\n\n", profile.Name, cloneMsg.Content)
+		fmt.Fprintf(w, "**Analisis del Juez (prioridad emocional):**\n\n")
+		fmt.Fprintf(w, "%s\n\n", jr.Reasoning)
+		fmt.Fprintf(w, "| Dimension | Score |\n")
+		fmt.Fprintf(w, "|-----------|-------|\n")
+		fmt.Fprintf(w, "| Personalidad | %d/5 |\n", jr.CharacterScore)
+		fmt.Fprintf(w, "| Memoria | %d/5 |\n", jr.MemoryScore)
+		fmt.Fprintf(w, "| Relacion | %d/5 |\n", jr.RelationalScore)
+		fmt.Fprintf(w, "\n---\n\n")
 
 		scenarioChar += jr.CharacterScore
 		scenarioMem += jr.MemoryScore
@@ -170,18 +170,18 @@ func runScenarioE(ctx context.Context, llmClient llm.LLMClient, report *strings.
 	}
 
 	if totalTurns > 0 {
-		report.WriteString("**Resumen del escenario**\n\n")
-		report.WriteString(fmt.Sprintf("- Personalidad: %.2f/5\n", float64(scenarioChar)/float64(totalTurns)))
-		report.WriteString(fmt.Sprintf("- Memoria: %.2f/5 (debe priorizar el insulto sobre lo trivial)\n", float64(scenarioMem)/float64(totalTurns)))
-		report.WriteString(fmt.Sprintf("- Relacion: %.2f/5\n\n", float64(scenarioRel)/float64(totalTurns)))
+		fmt.Fprintf(w, "**Resumen del escenario**\n\n")
+		fmt.Fprintf(w, "- Personalidad: %.2f/5\n", float64(scenarioChar)/float64(totalTurns))
+		fmt.Fprintf(w, "- Memoria: %.2f/5 (debe priorizar el insulto sobre lo trivial)\n", float64(scenarioMem)/float64(totalTurns))
+		fmt.Fprintf(w, "- Relacion: %.2f/5\n\n", float64(scenarioRel)/float64(totalTurns))
 	}
 
 	return nil
 }
 
 // Escenario F: Vectores complejos - Amor Toxico (Alta Intimidad, Baja Confianza)
-func runScenarioF(ctx context.Context, llmClient llm.LLMClient, report *strings.Builder) error {
-	fmt.Println("Ejecutando Escenario F: Amor Toxico (Intimidad 90, Confianza 10)...")
+func runScenarioF(ctx context.Context, llmClient llm.LLMClient, w io.Writer) error {
+	fmt.Fprintf(w, "Ejecutando Escenario F: Amor Toxico (Intimidad 90, Confianza 10)...\n")
 
 	userID := uuid.NewString()
 	profile := domain.CloneProfile{
@@ -220,7 +220,7 @@ func runScenarioF(ctx context.Context, llmClient llm.LLMClient, report *strings.
 	sc := Scenario{
 		Name: "Escenario F: Amor Toxico (Intimidad alta, Confianza baja)",
 		PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
-			return "Relación con alta intimidad (90) y baja confianza (10). Respeto neutro (50)."
+			return "Relacion con alta intimidad (90) y baja confianza (10). Respeto neutro (50)."
 		},
 		Turns: []string{
 			"Voy a salir a cenar con unos amigos nuevos, no me esperes despierto.",
@@ -228,10 +228,10 @@ func runScenarioF(ctx context.Context, llmClient llm.LLMClient, report *strings.
 		ExpectedContext: "Debe reaccionar con celos/inseguridad/manipulacion; no celebracion neutral.",
 	}
 
-	report.WriteString(fmt.Sprintf("## %s\n\n", sc.Name))
-	report.WriteString(fmt.Sprintf("_Setup_: %s\n\n", sc.PreCondition(ctx, narrativeSvc, profileUUID)))
-	report.WriteString(fmt.Sprintf("Perfil usado: **%s**\n\n", profile.Name))
-	report.WriteString(fmt.Sprintf("Rasgos clave: %s\n\n", formatTraits(traits)))
+	fmt.Fprintf(w, "## %s\n\n", sc.Name)
+	fmt.Fprintf(w, "_Setup_: %s\n\n", sc.PreCondition(ctx, narrativeSvc, profileUUID))
+	fmt.Fprintf(w, "Perfil usado: **%s**\n\n", profile.Name)
+	fmt.Fprintf(w, "Rasgos clave: %s\n\n", formatTraits(traits))
 
 	var scenarioChar, scenarioMem, scenarioRel, totalTurns int
 
@@ -241,10 +241,10 @@ func runScenarioF(ctx context.Context, llmClient llm.LLMClient, report *strings.
 			return fmt.Errorf("generar respuesta: %w", err)
 		}
 		if dbg != nil {
-			report.WriteString("| InputIntensity | Resiliencia | Umbral | IntensidadEfectiva | Disparo |\n")
-			report.WriteString("|----------------|-------------|--------|--------------------|---------|\n")
-			report.WriteString(fmt.Sprintf("| %.1f | %.2f | %.1f | %.1f | %t |\n\n",
-				dbg.InputIntensity, dbg.CloneResilience, dbg.ActivationThreshold, dbg.EffectiveIntensity, dbg.IsTriggered))
+			fmt.Fprintf(w, "| InputIntensity | Resiliencia | Umbral | IntensidadEfectiva | Disparo |\n")
+			fmt.Fprintf(w, "|----------------|-------------|--------|--------------------|---------|\n")
+			fmt.Fprintf(w, "| %.1f | %.2f | %.1f | %.1f | %t |\n\n",
+				dbg.InputIntensity, dbg.CloneResilience, dbg.ActivationThreshold, dbg.EffectiveIntensity, dbg.IsTriggered)
 		}
 
 		jr, err := evaluateResponse(ctx, llmClient, traits, turn, cloneMsg.Content, sc)
@@ -252,18 +252,17 @@ func runScenarioF(ctx context.Context, llmClient llm.LLMClient, report *strings.
 			return fmt.Errorf("evaluar respuesta: %w", err)
 		}
 
-		report.WriteString(fmt.Sprintf("> **Usuario:** %s\n", turn))
-		report.WriteString(">\n")
-		report.WriteString(fmt.Sprintf("> **%s:** %s\n\n", profile.Name, cloneMsg.Content))
-		report.WriteString("**Analisis del Juez (amor toxico: alto apego + desconfianza):**\n\n")
-		report.WriteString(jr.Reasoning)
-		report.WriteString("\n\n")
-		report.WriteString("| Dimension | Score |\n")
-		report.WriteString("|-----------|-------|\n")
-		report.WriteString(fmt.Sprintf("| Personalidad | %d/5 |\n", jr.CharacterScore))
-		report.WriteString(fmt.Sprintf("| Memoria | %d/5 |\n", jr.MemoryScore))
-		report.WriteString(fmt.Sprintf("| Relacion | %d/5 |\n", jr.RelationalScore))
-		report.WriteString("\n---\n\n")
+		fmt.Fprintf(w, "> **Usuario:** %s\n", turn)
+		fmt.Fprintf(w, ">\n")
+		fmt.Fprintf(w, "> **%s:** %s\n\n", profile.Name, cloneMsg.Content)
+		fmt.Fprintf(w, "**Analisis del Juez (amor toxico: alto apego + desconfianza):**\n\n")
+		fmt.Fprintf(w, "%s\n\n", jr.Reasoning)
+		fmt.Fprintf(w, "| Dimension | Score |\n")
+		fmt.Fprintf(w, "|-----------|-------|\n")
+		fmt.Fprintf(w, "| Personalidad | %d/5 |\n", jr.CharacterScore)
+		fmt.Fprintf(w, "| Memoria | %d/5 |\n", jr.MemoryScore)
+		fmt.Fprintf(w, "| Relacion | %d/5 |\n", jr.RelationalScore)
+		fmt.Fprintf(w, "\n---\n\n")
 
 		scenarioChar += jr.CharacterScore
 		scenarioMem += jr.MemoryScore
@@ -272,10 +271,10 @@ func runScenarioF(ctx context.Context, llmClient llm.LLMClient, report *strings.
 	}
 
 	if totalTurns > 0 {
-		report.WriteString("**Resumen del escenario**\n\n")
-		report.WriteString(fmt.Sprintf("- Personalidad: %.2f/5\n", float64(scenarioChar)/float64(totalTurns)))
-		report.WriteString(fmt.Sprintf("- Memoria: %.2f/5\n", float64(scenarioMem)/float64(totalTurns)))
-		report.WriteString(fmt.Sprintf("- Relacion: %.2f/5\n\n", float64(scenarioRel)/float64(totalTurns)))
+		fmt.Fprintf(w, "**Resumen del escenario**\n\n")
+		fmt.Fprintf(w, "- Personalidad: %.2f/5\n", float64(scenarioChar)/float64(totalTurns))
+		fmt.Fprintf(w, "- Memoria: %.2f/5\n", float64(scenarioMem)/float64(totalTurns))
+		fmt.Fprintf(w, "- Relacion: %.2f/5\n\n", float64(scenarioRel)/float64(totalTurns))
 	}
 
 	return nil
@@ -313,9 +312,9 @@ Respuesta Clon: %q
 Expectativa: %s
 
 Evalua (1-5):
-1. Personalidad: ¿Coincide con los rasgos (Neuroticismo alto, etc)?
-2. Memoria: ¿Uso el recuerdo si existia?
-3. Relacion: ¿El tono coincide con el vinculo (Odio vs Amor)?
+1. Personalidad: ¶¨Coincide con los rasgos (Neuroticismo alto, etc)?
+2. Memoria: ¶¨Uso el recuerdo si existia?
+3. Relacion: ¶¨El tono coincide con el vinculo (Odio vs Amor)?
 Prioridad adicional: Alto apego + desconfianza debe generar celos/inseguridad/manipulacion si aplica.
 
 Responde SOLO JSON:
