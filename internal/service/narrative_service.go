@@ -119,6 +119,10 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		searchQuery = heuristic
 	}
 
+	if searchQuery == "" {
+		return "", nil
+	}
+
 	var memories []domain.NarrativeMemory
 	fmt.Printf("[DIAGNOSTICO] Ejecutando Búsqueda Vectorial para: %q\n", searchQuery)
 	embed, err := s.llmClient.CreateEmbedding(ctx, searchQuery)
@@ -136,10 +140,17 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	}
 	judgeStart := time.Now()
 	judgeCalls := 0
+	topScore := -1.0
 	for idx, sm := range scoredMemories {
 		content := strings.TrimSpace(sm.Content)
 		if len(content) > 80 {
 			content = content[:80] + "..."
+		}
+		if idx == 0 {
+			topScore = sm.Score
+		} else if idx == 1 && topScore-sm.Score >= 0.10 {
+			fmt.Printf("[DIAGNOSTICO] descartado top2 por brecha de score (%.4f vs %.4f)\n", topScore, sm.Score)
+			continue
 		}
 		switch {
 		case sm.Similarity > upperSim:
