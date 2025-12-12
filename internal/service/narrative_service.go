@@ -15,6 +15,20 @@ import (
 	"clone-llm/internal/repository"
 )
 
+const evocationPromptTemplate = `
+Estás actuando como el subconsciente de una IA. Tu objetivo NO es responder al usuario, sino generar una "Query de Búsqueda" para encontrar recuerdos relevantes en tu base de datos vectorial.
+
+Mensaje del Usuario: "%s"
+
+Instrucciones:
+1. Ignora las palabras de relleno.
+2. Identifica la emoción subyacente (miedo, validación, soledad, ira reprimida).
+3. Identifica conceptos abstractos asociados (ej: si dice "mi padre me gritó", busca "autoridad", "conflicto", "infancia").
+4. Genera una lista de palabras clave y conceptos separados por espacios que representen el "corazón psicológico" del mensaje.
+
+Salida (SOLO TEXTO PLANO):
+`
+
 // NarrativeService recupera contexto narrativo relevante para el clon.
 type NarrativeService struct {
 	characterRepo repository.CharacterRepository
@@ -53,7 +67,9 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		active = chars
 	}
 
-	embed, err := s.llmClient.CreateEmbedding(ctx, userMessage)
+	searchQuery := s.generateEvocation(ctx, userMessage)
+
+	embed, err := s.llmClient.CreateEmbedding(ctx, searchQuery)
 	if err != nil {
 		return "", fmt.Errorf("create embedding: %w", err)
 	}
@@ -64,6 +80,8 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	}
 
 	if len(memories) > 0 {
+		headerTrauma := "=== ASOCIACIONES TRAUMÁTICAS (Tu subconsciente recuerda esto por similitud emocional) ===\n"
+		headerRecent := "=== FLASHBACKS Y CONTEXTO (Recuerdos evocados por la situación actual) ===\n"
 		sort.Slice(memories, func(i, j int) bool {
 			return memories[i].HappenedAt.After(memories[j].HappenedAt)
 		})
@@ -85,7 +103,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 			if label == "" {
 				label = "Neutral"
 			}
-			line := fmt.Sprintf("- [%s: %d] (%s) %s", strings.ToUpper(label), intensity, relative, strings.TrimSpace(m.Content))
+			line := fmt.Sprintf("- [TEMA: %s | Hace %s] %s", strings.ToUpper(label), relative, strings.TrimSpace(m.Content))
 			if intensity > 70 {
 				traumas = append(traumas, line)
 			} else {
@@ -93,10 +111,10 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 			}
 		}
 		if len(traumas) > 0 {
-			sections = append(sections, "=== MEMORIAS DE ALTO IMPACTO EMOCIONAL (INTENSIDAD > 70) ===\n"+strings.Join(traumas, "\n"))
+			sections = append(sections, headerTrauma+strings.Join(traumas, "\n"))
 		}
 		if len(recents) > 0 {
-			sections = append(sections, "=== CONTEXTO RECIENTE (INTENSIDAD BAJA/MEDIA) ===\n"+strings.Join(recents, "\n"))
+			sections = append(sections, headerRecent+strings.Join(recents, "\n"))
 		}
 	}
 
@@ -263,4 +281,19 @@ func (s *NarrativeService) GenerateNarrative(ctx context.Context, messages []dom
 
 	// TODO: Persistir summary y facts (p.ej., guardar summary en memoria narrativa y facts en un store de hechos).
 	return mc, nil
+}
+
+func (s *NarrativeService) generateEvocation(ctx context.Context, userMessage string) string {
+	if len(userMessage) < 10 {
+		return userMessage
+	}
+
+	prompt := fmt.Sprintf(evocationPromptTemplate, strings.TrimSpace(userMessage))
+	resp, err := s.llmClient.Generate(ctx, prompt)
+	if err != nil {
+		fmt.Printf("warn: generate evocation failed: %v\n", err)
+		return userMessage
+	}
+
+	return strings.TrimSpace(resp)
 }
