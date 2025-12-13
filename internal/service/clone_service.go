@@ -82,6 +82,9 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	if strings.TrimSpace(narrativeText) != "" {
 		isHighTension = detectHighTensionFromNarrative(narrativeText)
 	}
+	if narrativeText != "" {
+		log.Printf("debug: narrative tension=%t text=%q", isHighTension, narrativeText)
+	}
 
 	// Analizar intensidad emocional y decidir si persistir recuerdo
 	emotionalIntensity := 10
@@ -101,6 +104,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 
 	// Filtro: si el input es bajo y neutro/negativo leve, no lo elevamos a memoria
 	// === FIX: si hay tensión relacional, NO puede ser trivial ===
+	const tensionIntensityFloor = 35
 	effectiveIntensity := emotionalIntensity
 	if emotionalIntensity < 30 && (isNegativeEmotion(emotionCategory) || isNeutralEmotion(emotionCategory)) {
 		if !isHighTension {
@@ -109,10 +113,16 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 		} else {
 			// Relación tensa: forzamos atención mínima aunque el analyzer lo pinte neutro.
 			trivialInput = false
-			if effectiveIntensity < 20 {
-				effectiveIntensity = 20
+			if effectiveIntensity < tensionIntensityFloor {
+				effectiveIntensity = tensionIntensityFloor
 			}
 		}
+	}
+	if isHighTension {
+		if effectiveIntensity < tensionIntensityFloor {
+			effectiveIntensity = tensionIntensityFloor
+		}
+		trivialInput = false
 	}
 
 	// Modelo ReLu de intensidad efectiva basado en resiliencia/Big5
@@ -278,7 +288,7 @@ func (s *CloneService) buildClonePrompt(
 		if isHighTension {
 			sb.WriteString("El input parece superficial, pero hay tensión en el vínculo. Mantén energía moderada y lee el subtexto con sospecha/celos si aplica.\n\n")
 		} else {
-			sb.WriteString("El input del usuario es trivial. Responde con curiosidad casual o desinteres educado, pero NO seas hostil.\n\n")
+			sb.WriteString("El input del usuario es trivial. Responde con baja energía y tono casual; si tu personalidad o la relación lo justifican, permite irritación, frialdad o sospecha sin inventar conflicto.\n\n")
 		}
 	}
 
@@ -362,12 +372,30 @@ func detectHighTensionFromNarrative(narrativeText string) bool {
 
 	signals := []string{
 		"desconfianza",
+		"confianza baja",
+		"poca confianza",
+		"baja confianza",
+		"sin confianza",
 		"celos",
+		"celoso",
 		"control",
+		"posesiv",
 		"sospecha",
+		"duda",
 		"pasivo-agres",
 		"hostilidad",
+		"conflicto",
+		"tension",
+		"tensión",
+		"tenso",
+		"tensa",
 		"reproches",
+		"reproche",
+		"rencor",
+		"inseguridad",
+		"inestable",
+		"relación inestable",
+		"relacion inestable",
 		"amor toxico", "amor tóxico",
 		"toxic", "tóxic",
 	}
