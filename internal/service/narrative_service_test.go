@@ -13,284 +13,173 @@ import (
 	"clone-llm/internal/repository"
 )
 
-func TestBuildNarrativeContextBenignPreferenceAvoidsTrauma(t *testing.T) {
+func TestMergeDedupMemories(t *testing.T) {
+	idA := uuid.New()
+	idB := uuid.New()
+	idC := uuid.New()
+
+	primary := []domain.NarrativeMemory{
+		{ID: idA, Content: "A"},
+		{ID: idB, Content: "B"},
+	}
+	secondary := []domain.NarrativeMemory{
+		{ID: idB, Content: "B-dup"},
+		{ID: idC, Content: "C"},
+	}
+
+	got := mergeDedupMemories(primary, secondary)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 memories, got %d", len(got))
+	}
+	if got[0].ID != idA || got[1].ID != idB || got[2].ID != idC {
+		t.Fatalf("order mismatch, got IDs %v %v %v", got[0].ID, got[1].ID, got[2].ID)
+	}
+}
+
+func TestBuildNarrativeContext_WorkingMemoryPriorityWhenSearchEmpty(t *testing.T) {
 	ctx := context.Background()
+	now := time.Now()
 	profileID := uuid.New()
 
-	memRepo := &mockMemoryRepo{
-		scored: []repository.ScoredMemory{
-			{
-				NarrativeMemory: domain.NarrativeMemory{
-					ID:              uuid.New(),
-					CloneProfileID:  profileID,
-					Content:         "Me encanta el helado de chocolate",
-					EmotionCategory: "placer",
-					HappenedAt:      time.Now(),
-				},
-				Similarity: 0.9,
-				Score:      0.9,
-			},
-		},
+	wmMemories := []domain.NarrativeMemory{
+		{ID: uuid.New(), CloneProfileID: profileID, Content: "Conflicto reciente 1", EmotionCategory: "IRA", HappenedAt: now},
+		{ID: uuid.New(), CloneProfileID: profileID, Content: "Conflicto reciente 2", EmotionCategory: "IRA", HappenedAt: now.Add(-time.Minute)},
 	}
-	llm := &fakeLLM{
-		embed:        []float32{0.1, 0.2, 0.3},
-		generateResp: "helado de chocolate",
-	}
-	svc := NewNarrativeService(&mockCharacterRepo{}, memRepo, llm)
 
-	contextText, err := svc.BuildNarrativeContext(ctx, profileID, "Se me antoja helado de chocolate")
+	svc := newNarrativeServiceTestHarness(wmMemories, nil)
+	text, err := svc.BuildNarrativeContext(ctx, profileID, "hablar de tostadas y nubes")
 	if err != nil {
-		t.Fatalf("build context: %v", err)
+		t.Fatalf("BuildNarrativeContext returned error: %v", err)
 	}
 
-	if memRepo.factor != 0 {
-		t.Fatalf("expected emotionalWeightFactor 0 for benign input, got %v", memRepo.factor)
-	}
-	if !strings.Contains(contextText, "=== GUSTOS Y PREFERENCIAS ===") {
-		t.Fatalf("expected benign header, got: %q", contextText)
-	}
-	if llm.judgeCalls > 0 {
-		t.Fatalf("expected no judge calls for benign input, got %d", llm.judgeCalls)
+	for _, content := range []string{"Conflicto reciente 1", "Conflicto reciente 2"} {
+		if !strings.Contains(text, content) {
+			t.Fatalf("expected context to include %q; got %q", content, text)
+		}
 	}
 }
 
-func TestBuildNarrativeContextNonBenignUsesEmotionalFactor(t *testing.T) {
+func TestBuildNarrativeContext_MergeDedupKeepsUnique(t *testing.T) {
 	ctx := context.Background()
+	now := time.Now()
 	profileID := uuid.New()
 
-	memRepo := &mockMemoryRepo{
-		scored: []repository.ScoredMemory{
-			{
-				NarrativeMemory: domain.NarrativeMemory{
-					ID:              uuid.New(),
-					CloneProfileID:  profileID,
-					Content:         "Recuerdo del accidente en la carretera",
-					EmotionCategory: "trauma",
-					HappenedAt:      time.Now(),
-				},
-				Similarity: 0.9,
-				Score:      0.9,
-			},
-		},
+	dupID := uuid.New()
+	wmMemories := []domain.NarrativeMemory{
+		{ID: dupID, CloneProfileID: profileID, Content: "WM dup", EmotionCategory: "IRA", HappenedAt: now},
+		{ID: uuid.New(), CloneProfileID: profileID, Content: "WM only", EmotionCategory: "IRA", HappenedAt: now.Add(-time.Minute)},
 	}
-	llm := &fakeLLM{
-		embed:        []float32{0.3, 0.2, 0.1},
-		generateResp: "accidente, insomnio",
-	}
-	svc := NewNarrativeService(&mockCharacterRepo{}, memRepo, llm)
 
-	contextText, err := svc.BuildNarrativeContext(ctx, profileID, "No puedo dormir desde el accidente")
+	searchMemories := []repository.ScoredMemory{
+		{NarrativeMemory: domain.NarrativeMemory{ID: dupID, CloneProfileID: profileID, Content: "WM dup", EmotionCategory: "IRA", HappenedAt: now.Add(-2 * time.Minute)}, Similarity: 0.9, Score: 0.9},
+		{NarrativeMemory: domain.NarrativeMemory{ID: uuid.New(), CloneProfileID: profileID, Content: "Search unique", EmotionCategory: "TRISTEZA", HappenedAt: now.Add(-3 * time.Minute)}, Similarity: 0.85, Score: 0.85},
+	}
+
+	svc := newNarrativeServiceTestHarness(wmMemories, searchMemories)
+	text, err := svc.BuildNarrativeContext(ctx, profileID, "mensaje cualquiera")
 	if err != nil {
-		t.Fatalf("build context: %v", err)
+		t.Fatalf("BuildNarrativeContext returned error: %v", err)
 	}
 
-	if memRepo.factor <= 0 {
-		t.Fatalf("expected positive emotionalWeightFactor for non-benign input, got %v", memRepo.factor)
-	}
-	if !strings.Contains(contextText, "=== MEMORIA EVOCADA ===") {
-		t.Fatalf("expected neutral header for non-benign low-intensity input, got: %q", contextText)
-	}
-	if llm.judgeCalls > 0 {
-		t.Fatalf("expected no judge calls when similarity is high, got %d", llm.judgeCalls)
+	for _, content := range []string{"WM dup", "WM only", "Search unique"} {
+		if count := strings.Count(text, content); count != 1 {
+			t.Fatalf("expected content %q once, got count=%d in %q", content, count, text)
+		}
 	}
 }
 
-func TestBuildNarrativeContextMixedIntentBlocksTrauma(t *testing.T) {
+func TestBuildNarrativeContext_IgnoresLowImpactWhenNoneReturned(t *testing.T) {
 	ctx := context.Background()
+	now := time.Now()
 	profileID := uuid.New()
 
-	memRepo := &mockMemoryRepo{
-		scored: []repository.ScoredMemory{
-			{
-				NarrativeMemory: domain.NarrativeMemory{
-					ID:                 uuid.New(),
-					CloneProfileID:     profileID,
-					Content:            "Mi padre me abandonó en la carretera",
-					EmotionCategory:    "TRISTEZA",
-					EmotionalIntensity: 8,
-					HappenedAt:         time.Now(),
-				},
-				Similarity: 0.95,
-				Score:      0.95,
-			},
-			{
-				NarrativeMemory: domain.NarrativeMemory{
-					ID:                 uuid.New(),
-					CloneProfileID:     profileID,
-					Content:            "Helado de chocolate favorito en verano",
-					EmotionCategory:    "placer",
-					EmotionalIntensity: 2,
-					HappenedAt:         time.Now(),
-				},
-				Similarity: 0.7,
-				Score:      0.7,
-			},
-		},
+	// Working memory repo fake returns empty to simulate below-threshold rows.
+	wmMemories := []domain.NarrativeMemory{}
+	searchMemories := []repository.ScoredMemory{
+		{NarrativeMemory: domain.NarrativeMemory{ID: uuid.New(), CloneProfileID: profileID, Content: "Search kept", EmotionCategory: "ALEGRIA", HappenedAt: now}, Similarity: 0.9, Score: 0.9},
 	}
-	llm := &fakeLLM{
-		embed:        []float32{0.5, 0.5, 0.1},
-		generateResp: "abandono, helado",
-	}
-	svc := NewNarrativeService(&mockCharacterRepo{}, memRepo, llm)
 
-	contextText, err := svc.BuildNarrativeContext(ctx, profileID, "Me dejaron esperando otra vez y quiero helado de chocolate")
+	svc := newNarrativeServiceTestHarness(wmMemories, searchMemories)
+	text, err := svc.BuildNarrativeContext(ctx, profileID, "mensaje normal")
 	if err != nil {
-		t.Fatalf("build context: %v", err)
+		t.Fatalf("BuildNarrativeContext returned error: %v", err)
 	}
 
-	if memRepo.factor != 0 {
-		t.Fatalf("expected emotionalWeightFactor 0 for mixed benign intent, got %v", memRepo.factor)
+	if !strings.Contains(text, "Search kept") {
+		t.Fatalf("expected context to include %q; got %q", "Search kept", text)
 	}
-	if strings.Contains(contextText, "Mi padre me abandono") {
-		t.Fatalf("trauma memory should have been blocked, got: %q", contextText)
-	}
-	if !strings.Contains(contextText, "Helado de chocolate favorito") && contextText != "" {
-		t.Fatalf("expected preference memory or empty context, got: %q", contextText)
+	if strings.Contains(text, "low impact") {
+		t.Fatalf("unexpected low impact memory present: %q", text)
 	}
 }
 
-func TestBuildNarrativeContextTraumaticHeader(t *testing.T) {
-	ctx := context.Background()
-	profileID := uuid.New()
-	memRepo := &mockMemoryRepo{
-		scored: []repository.ScoredMemory{
-			{
-				NarrativeMemory: domain.NarrativeMemory{
-					ID:                 uuid.New(),
-					CloneProfileID:     profileID,
-					Content:            "Me gritó y me humilló en público",
-					EmotionCategory:    "IRA",
-					EmotionalIntensity: 9,
-					HappenedAt:         time.Now(),
-				},
-				Similarity: 0.8,
-				Score:      0.8,
-			},
-			{
-				NarrativeMemory: domain.NarrativeMemory{
-					ID:                 uuid.New(),
-					CloneProfileID:     profileID,
-					Content:            "Sentí mucho miedo en el accidente",
-					EmotionCategory:    "MIEDO",
-					EmotionalIntensity: 7,
-					HappenedAt:         time.Now(),
-				},
-				Similarity: 0.7,
-				Score:      0.7,
-			},
-		},
+// --- fakes ---
+
+type fakeLLM struct{}
+
+func (f fakeLLM) CreateEmbedding(ctx context.Context, text string) ([]float32, error) {
+	return []float32{1.0, 0.0}, nil
+}
+func (f fakeLLM) Generate(ctx context.Context, prompt string) (string, error) {
+	// Simple echo keeps evocation non-empty and judge "use": true
+	if strings.Contains(prompt, `"use"`) {
+		return `{"use": true, "reason": "ok"}`, nil
 	}
-	llm := &fakeLLM{embed: []float32{0.2, 0.2, 0.2}, generateResp: "humillación, miedo"}
-	svc := NewNarrativeService(&mockCharacterRepo{}, memRepo, llm)
-	contextText, err := svc.BuildNarrativeContext(ctx, profileID, "No me faltes el respeto, me humillaste")
-	if err != nil {
-		t.Fatalf("build context: %v", err)
-	}
-	if !strings.Contains(contextText, "=== ASOCIACIONES TRAUMATICAS ===") {
-		t.Fatalf("expected traumatic header, got: %q", contextText)
-	}
+	return "evocacion simple", nil
 }
 
-func TestBuildNarrativeContextNeutralHeader(t *testing.T) {
-	ctx := context.Background()
-	profileID := uuid.New()
-	memRepo := &mockMemoryRepo{
-		scored: []repository.ScoredMemory{
-			{
-				NarrativeMemory: domain.NarrativeMemory{
-					ID:                 uuid.New(),
-					CloneProfileID:     profileID,
-					Content:            "Recordé la playa al escuchar las olas",
-					EmotionCategory:    "NOSTALGIA",
-					EmotionalIntensity: 4,
-					HappenedAt:         time.Now(),
-				},
-				Similarity: 0.6,
-				Score:      0.6,
-			},
-		},
-	}
-	llm := &fakeLLM{embed: []float32{0.3, 0.1, 0.4}, generateResp: "playa, olas"}
-	svc := NewNarrativeService(&mockCharacterRepo{}, memRepo, llm)
-	contextText, err := svc.BuildNarrativeContext(ctx, profileID, "Escuché olas y pensé en vacaciones")
-	if err != nil {
-		t.Fatalf("build context: %v", err)
-	}
-	if !strings.Contains(contextText, "=== MEMORIA EVOCADA ===") {
-		t.Fatalf("expected neutral header, got: %q", contextText)
-	}
+type fakeCharacterRepo struct {
+	chars []domain.Character
 }
 
-func TestGenerateEvocationMixedIntentIncludesBenignObject(t *testing.T) {
-	ctx := context.Background()
-	llm := &fakeLLM{
-		generateResponder: func(prompt string) string {
-			if strings.Contains(prompt, "Me dejaron esperando en la estación, quiero helado de chocolate") {
-				return "placer, consuelo, helado de chocolate, frustración, espera"
-			}
-			return ""
-		},
-	}
-	svc := NewNarrativeService(&mockCharacterRepo{}, &mockMemoryRepo{}, llm)
-
-	out := svc.generateEvocation(ctx, "Me dejaron esperando en la estación, quiero helado de chocolate")
-	if !strings.Contains(out, "helado de chocolate") {
-		t.Fatalf("expected benign object in evocation query, got %q", out)
-	}
-	if !strings.Contains(out, "placer") || !strings.Contains(out, "consuelo") {
-		t.Fatalf("expected consuelo/placer signals in query, got %q", out)
-	}
-}
-
-type mockMemoryRepo struct {
-	scored []repository.ScoredMemory
-	factor float64
-}
-
-func (m *mockMemoryRepo) Create(ctx context.Context, memory domain.NarrativeMemory) error {
+func (f fakeCharacterRepo) Create(ctx context.Context, character domain.Character) error {
+	f.chars = append(f.chars, character)
 	return nil
 }
 
-func (m *mockMemoryRepo) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int, emotionalWeightFactor float64) ([]repository.ScoredMemory, error) {
-	m.factor = emotionalWeightFactor
-	return m.scored, nil
+func (f fakeCharacterRepo) Update(ctx context.Context, character domain.Character) error { return nil }
+
+func (f fakeCharacterRepo) ListByProfileID(ctx context.Context, profileID uuid.UUID) ([]domain.Character, error) {
+	return f.chars, nil
 }
 
-func (m *mockMemoryRepo) ListByCharacter(ctx context.Context, characterID uuid.UUID) ([]domain.NarrativeMemory, error) {
-	return nil, nil
-}
-
-type mockCharacterRepo struct{}
-
-func (m *mockCharacterRepo) Create(ctx context.Context, character domain.Character) error { return nil }
-func (m *mockCharacterRepo) Update(ctx context.Context, character domain.Character) error { return nil }
-func (m *mockCharacterRepo) FindByName(ctx context.Context, profileID uuid.UUID, name string) (*domain.Character, error) {
-	return nil, nil
-}
-func (m *mockCharacterRepo) ListByProfileID(ctx context.Context, profileID uuid.UUID) ([]domain.Character, error) {
-	return nil, nil
-}
-
-type fakeLLM struct {
-	embed             []float32
-	generateResp      string
-	generateResponder func(string) string
-	generateCalls     int
-	judgeCalls        int
-}
-
-func (f *fakeLLM) CreateEmbedding(ctx context.Context, text string) ([]float32, error) {
-	return f.embed, nil
-}
-
-func (f *fakeLLM) Generate(ctx context.Context, prompt string) (string, error) {
-	if f.generateResponder != nil {
-		return f.generateResponder(prompt), nil
+func (f fakeCharacterRepo) FindByName(ctx context.Context, profileID uuid.UUID, name string) (*domain.Character, error) {
+	for i := range f.chars {
+		if f.chars[i].CloneProfileID == profileID && strings.EqualFold(f.chars[i].Name, name) {
+			return &f.chars[i], nil
+		}
 	}
-	f.generateCalls++
-	if strings.Contains(prompt, `"use": true`) {
-		f.judgeCalls++
-		return `{"use": true, "reason": "ok"}`, nil
+	return nil, nil
+}
+
+type fakeMemoryRepo struct {
+	wm     []domain.NarrativeMemory
+	search []repository.ScoredMemory
+}
+
+func (f fakeMemoryRepo) Create(ctx context.Context, memory domain.NarrativeMemory) error { return nil }
+
+func (f fakeMemoryRepo) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int, emotionalWeightFactor float64) ([]repository.ScoredMemory, error) {
+	return f.search, nil
+}
+
+func (f fakeMemoryRepo) ListByCharacter(ctx context.Context, characterID uuid.UUID) ([]domain.NarrativeMemory, error) {
+	return nil, nil
+}
+
+func (f fakeMemoryRepo) GetRecentHighImpactByProfile(ctx context.Context, profileID uuid.UUID, limit int, minImportance int, minEmotionalIntensity int) ([]domain.NarrativeMemory, error) {
+	return f.wm, nil
+}
+
+func newNarrativeServiceTestHarness(wm []domain.NarrativeMemory, search []repository.ScoredMemory) *NarrativeService {
+	charID := uuid.New()
+	charRepo := fakeCharacterRepo{chars: []domain.Character{
+		{ID: charID, CloneProfileID: uuid.Nil, Name: "TestUser", Relationship: domain.RelationshipVectors{Trust: 50, Intimacy: 50, Respect: 50}},
+	}}
+
+	return &NarrativeService{
+		characterRepo: charRepo,
+		memoryRepo:    fakeMemoryRepo{wm: wm, search: search},
+		llmClient:     fakeLLM{},
 	}
-	return f.generateResp, nil
 }

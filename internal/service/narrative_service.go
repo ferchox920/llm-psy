@@ -15,6 +15,12 @@ import (
 )
 
 const defaultEmotionalWeightFactor = 0.0005
+const (
+	workingMemoryLimit                 = 3
+	workingMemoryMinImportance         = 8
+	workingMemoryMinEmotionalIntensity = 60
+	maxTotalMemoriesInContext          = 7
+)
 
 type llmClientWithEmbedding interface {
 	CreateEmbedding(ctx context.Context, text string) ([]float32, error)
@@ -218,14 +224,23 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		}
 	}
 
-	if len(memories) > 0 {
-		sort.Slice(memories, func(i, j int) bool {
-			return memories[i].HappenedAt.After(memories[j].HappenedAt)
+	// Working Memory: memorias recientes/impacto alto que no dependen de similitud
+	workingMemories, err := s.memoryRepo.GetRecentHighImpactByProfile(ctx, profileID, workingMemoryLimit, workingMemoryMinImportance, workingMemoryMinEmotionalIntensity)
+	if err != nil {
+		return "", err
+	}
+
+	allMemories := mergeDedupMemories(workingMemories, memories)
+	allMemories = limitMemories(allMemories, maxTotalMemoriesInContext)
+
+	if len(allMemories) > 0 {
+		sort.Slice(allMemories, func(i, j int) bool {
+			return allMemories[i].HappenedAt.After(allMemories[j].HappenedAt)
 		})
 
 		var lines []string
-		sectionTitle := resolveSectionTitle(isBenign, memories)
-		for _, m := range memories {
+		sectionTitle := resolveSectionTitle(isBenign, allMemories)
+		for _, m := range allMemories {
 			lines = append(lines, fmt.Sprintf(
 				"- [TEMA: %s | Hace %s] %s",
 				strings.ToUpper(m.EmotionCategory),
@@ -266,6 +281,34 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 }
 
 // --- helpers y servicios auxiliares ---
+
+func mergeDedupMemories(primary, secondary []domain.NarrativeMemory) []domain.NarrativeMemory {
+	seen := make(map[uuid.UUID]struct{})
+	out := make([]domain.NarrativeMemory, 0, len(primary)+len(secondary))
+
+	for _, m := range primary {
+		if _, ok := seen[m.ID]; ok {
+			continue
+		}
+		seen[m.ID] = struct{}{}
+		out = append(out, m)
+	}
+	for _, m := range secondary {
+		if _, ok := seen[m.ID]; ok {
+			continue
+		}
+		seen[m.ID] = struct{}{}
+		out = append(out, m)
+	}
+	return out
+}
+
+func limitMemories(memories []domain.NarrativeMemory, n int) []domain.NarrativeMemory {
+	if n <= 0 || len(memories) <= n {
+		return memories
+	}
+	return memories[:n]
+}
 
 func (s *NarrativeService) generateEvocation(ctx context.Context, userMessage string) string {
 	msgLower := strings.ToLower(userMessage)

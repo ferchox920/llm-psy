@@ -98,7 +98,9 @@ func (m *memoryCharacterRepo) Create(ctx context.Context, character domain.Chara
 	m.chars = append(m.chars, character)
 	return nil
 }
-func (m *memoryCharacterRepo) Update(ctx context.Context, character domain.Character) error { return nil }
+func (m *memoryCharacterRepo) Update(ctx context.Context, character domain.Character) error {
+	return nil
+}
 
 func (m *memoryCharacterRepo) ListByProfileID(ctx context.Context, profileID uuid.UUID) ([]domain.Character, error) {
 	var out []domain.Character
@@ -157,4 +159,20 @@ func (m *memoryMemoryRepo) Search(ctx context.Context, profileID uuid.UUID, quer
 
 func (m *memoryMemoryRepo) ListByCharacter(ctx context.Context, characterID uuid.UUID) ([]domain.NarrativeMemory, error) {
 	return nil, nil
+}
+
+func (m *memoryMemoryRepo) GetRecentHighImpactByProfile(ctx context.Context, profileID uuid.UUID, limit int, minImportance int, minEmotionalIntensity int) ([]domain.NarrativeMemory, error) {
+	var out []domain.NarrativeMemory
+	for _, mem := range m.memories {
+		if mem.CloneProfileID != profileID {
+			continue
+		}
+		if mem.Importance >= minImportance || mem.EmotionalIntensity >= minEmotionalIntensity {
+			out = append(out, mem)
+		}
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
 }

@@ -16,6 +16,7 @@ type MemoryRepository interface {
 	Create(ctx context.Context, memory domain.NarrativeMemory) error
 	Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int, emotionalWeightFactor float64) ([]ScoredMemory, error)
 	ListByCharacter(ctx context.Context, characterID uuid.UUID) ([]domain.NarrativeMemory, error)
+	GetRecentHighImpactByProfile(ctx context.Context, profileID uuid.UUID, limit int, minImportance int, minEmotionalIntensity int) ([]domain.NarrativeMemory, error)
 }
 
 type PgMemoryRepository struct {
@@ -117,6 +118,28 @@ func (r *PgMemoryRepository) ListByCharacter(ctx context.Context, characterID uu
 		ORDER BY happened_at DESC
 	`
 	rows, err := r.pool.Query(ctx, query, characterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanMemories(rows)
+}
+
+func (r *PgMemoryRepository) GetRecentHighImpactByProfile(ctx context.Context, profileID uuid.UUID, limit int, minImportance int, minEmotionalIntensity int) ([]domain.NarrativeMemory, error) {
+	if limit <= 0 {
+		limit = 3
+	}
+	const query = `
+		SELECT id, clone_profile_id, related_character_id, content, embedding, importance, emotional_weight, emotional_intensity, emotion_category, sentiment_label, happened_at, created_at, updated_at
+		FROM narrative_memories
+		WHERE clone_profile_id = $1
+		  AND (importance >= $2 OR emotional_intensity >= $3)
+		ORDER BY COALESCE(happened_at, created_at) DESC
+		LIMIT $4
+	`
+
+	rows, err := r.pool.Query(ctx, query, profileID, minImportance, minEmotionalIntensity, limit)
 	if err != nil {
 		return nil, err
 	}
