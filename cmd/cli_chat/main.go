@@ -142,6 +142,8 @@ func runActionsMenu(
 	narrativeSvc *service.NarrativeService,
 	cloneSvc *service.CloneService,
 ) error {
+	_ = traitRepo
+	_ = characterRepo
 	for {
 		fmt.Printf("\n--- Trabajando con: %s ---\n", strings.ToUpper(profile.Name))
 		fmt.Println("[1] Chatear")

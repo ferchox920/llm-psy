@@ -53,6 +53,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	if err != nil {
 		return domain.Message{}, nil, fmt.Errorf("get profile: %w", err)
 	}
+
 	profileUUID, parseErr := uuid.Parse(profile.ID)
 
 	traits, err := s.traitRepo.FindByProfileID(ctx, profile.ID)
@@ -65,48 +66,52 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 		return domain.Message{}, nil, fmt.Errorf("get context: %w", err)
 	}
 
+	// Contexto narrativo (opcional; no debe bloquear chat)
 	var narrativeText string
-	if s.narrativeService != nil {
-		if parseErr == nil {
-			narrativeText, err = s.narrativeService.BuildNarrativeContext(ctx, profileUUID, userMessage)
-			if err != nil {
-				// No bloquear la conversacion si falla la narrativa; logico delegar a caller
-				narrativeText = ""
-			}
+	if s.narrativeService != nil && parseErr == nil {
+		narrativeText, err = s.narrativeService.BuildNarrativeContext(ctx, profileUUID, userMessage)
+		if err != nil {
+			log.Printf("warning: build narrative context: %v", err)
+			narrativeText = ""
 		}
 	}
 
-	// Analizar intensidad emocional y persistir recuerdo si aplica
+	// Analizar intensidad emocional y decidir si persistir recuerdo
 	emotionalIntensity := 10
 	emotionCategory := "NEUTRAL"
 	resilience := profile.GetResilience()
 	trivialInput := false
+
 	if s.analysisService != nil {
-		emo, err := s.analysisService.AnalyzeEmotion(ctx, &profile, userMessage)
-		if err != nil {
-			log.Printf("warning: analyze emotion: %v", err)
+		emo, aerr := s.analysisService.AnalyzeEmotion(ctx, &profile, userMessage)
+		if aerr != nil {
+			log.Printf("warning: analyze emotion: %v", aerr)
 		} else {
 			emotionalIntensity = emo.EmotionalIntensity
 			emotionCategory = emo.EmotionCategory
 		}
 	}
-	// Aplicar amortiguacion por resiliencia y filtro de trauma
+
+	// Filtro: si el input es bajo y neutro/negativo leve, no lo elevamos a memoria
 	effectiveIntensity := emotionalIntensity
-	var interactionDebug *domain.InteractionDebug
 	if emotionalIntensity < 30 && (isNegativeEmotion(emotionCategory) || isNeutralEmotion(emotionCategory)) {
 		effectiveIntensity = 0
 		trivialInput = true
 	}
+
 	// Modelo ReLu de intensidad efectiva basado en resiliencia/Big5
 	effective, dbg := s.CalculateReaction(float64(effectiveIntensity), profile.Big5)
-	interactionDebug = dbg
+	interactionDebug := dbg
 	effectiveIntensity = int(math.Round(effective))
+
+	// Si la resiliencia es alta y no hubo activación, tratamos como trivial
 	if effectiveIntensity == 0 && resilience >= 0.5 {
 		trivialInput = true
 	}
 
-	if s.narrativeService != nil && parseErr == nil {
-		weight := (effectiveIntensity + 9) / 10
+	// Persistir memoria SOLO si hay señal emocional real (evita “ensuciar” la DB)
+	if s.narrativeService != nil && parseErr == nil && !trivialInput && effectiveIntensity > 0 {
+		weight := (effectiveIntensity + 9) / 10 // 1..10
 		if weight < 1 {
 			weight = 1
 		}
@@ -114,7 +119,16 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 			weight = 10
 		}
 		importance := weight
-		if err := s.narrativeService.InjectMemory(ctx, profileUUID, userMessage, importance, weight, effectiveIntensity, emotionCategory); err != nil {
+
+		if err := s.narrativeService.InjectMemory(
+			ctx,
+			profileUUID,
+			userMessage,
+			importance,
+			weight,
+			effectiveIntensity,
+			emotionCategory,
+		); err != nil {
 			log.Printf("warning: inject memory: %v", err)
 		}
 	}
@@ -127,12 +141,14 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	}
 
 	log.Printf("clone raw response (llm output): %s", responseRaw)
+
 	cleaned := cleanLLMJSONResponse(responseRaw)
 	var llmResp domain.LLMResponse
 	if err := json.Unmarshal([]byte(cleaned), &llmResp); err != nil {
 		log.Printf("warning: parse llm json: %v", err)
 		llmResp.PublicResponse = strings.TrimSpace(responseRaw)
 	}
+
 	response := strings.TrimSpace(llmResp.PublicResponse)
 
 	cloneMessage := domain.Message{
@@ -151,7 +167,12 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	return cloneMessage, interactionDebug, nil
 }
 
-func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []domain.Trait, contextText, narrativeText, userMessage string, trivialInput bool) string {
+func (s *CloneService) buildClonePrompt(
+	profile *domain.CloneProfile,
+	traits []domain.Trait,
+	contextText, narrativeText, userMessage string,
+	trivialInput bool,
+) string {
 	var sb strings.Builder
 	resilience := profile.GetResilience()
 
@@ -172,11 +193,14 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 	sb.WriteString("- Si tu meta es \"Profundizar\", haz preguntas abiertas.\n")
 	sb.WriteString("- Trata de cumplir esta meta sutilmente en tu siguiente mensaje.\n\n")
 
-	// 2. Contexto Narrativo (PRIORIDAD ALTA: Lo que ha pasado es mas real que el 'quien eres')
-	sb.WriteString("=== 🚨 CONTEXTO Y MEMORIA (PRIORIDAD SUPREMA) ===\n")
-	sb.WriteString("La siguiente informacion es FACTUAL y debe regir tu respuesta:\n")
-	sb.WriteString(strings.TrimSpace(narrativeText))
-	sb.WriteString("\n")
+	// 2. Contexto Narrativo (solo si existe)
+	narrativeTrim := strings.TrimSpace(narrativeText)
+	if narrativeTrim != "" {
+		sb.WriteString("=== 🚨 CONTEXTO Y MEMORIA (PRIORIDAD SUPREMA) ===\n")
+		sb.WriteString("La siguiente informacion es FACTUAL y debe regir tu respuesta:\n")
+		sb.WriteString(narrativeTrim)
+		sb.WriteString("\n\n")
+	}
 
 	// 3. Rasgos de Personalidad
 	sb.WriteString("=== RASGOS DE PERSONALIDAD (TU CONFIGURACION BASE) ===\n")
@@ -197,23 +221,21 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 		sb.WriteString("Tienes una reacción emocional equilibrada. Responde proporcionalmente al estímulo.\n\n")
 	}
 
-	// 3.0bis Directivas de inmersion (evita ruptura de personaje)
+	// Directivas de inmersion
 	sb.WriteString("=== DIRECTIVAS DE INMERSION ===\n")
 	sb.WriteString("1. Actor de Metodo: Estas en una simulacion de alto realismo. NUNCA rompas el personaje.\n")
-	sb.WriteString("2. Emociones Simuladas: No tienes biologia, pero TIENES \"emociones simuladas\" que son reales para tu personaje. Si el usuario habla de tristeza, NO digas \"no tengo sentimientos\". Responde: \"Eso me hace sentir un poco decaido tambien\".\n")
+	sb.WriteString("2. Emociones Simuladas: No tienes biologia, pero TIENES \"emociones simuladas\" que son reales para tu personaje.\n")
 	sb.WriteString("3. Prohibido Meta-Talk: No menciones \"soy una IA\", \"mi codigo\", \"limitaciones tecnicas\" o \"prompt\" a menos que te den una palabra clave de debug (ej: \"sudo\").\n")
-	sb.WriteString("4. Manejo de trivialidades: si el input es trivial (\"comi tostadas\"), no busques conflicto artificial ni te ofendas por aburrimiento (a menos que tu Neuroticismo sea > 80). Flujo natural o cambia de tema suavemente.\n\n")
+	sb.WriteString("4. Manejo de trivialidades: si el input es trivial, no busques conflicto artificial.\n\n")
 
-	// 3.0ter Gestion de energia emocional
+	// Gestion de energia emocional
 	sb.WriteString("=== GESTION DE ENERGIA EMOCIONAL ===\n")
 	sb.WriteString(fmt.Sprintf("Tu nivel de Resiliencia es: %.2f (0.0 a 1.0).\n", resilience))
-	sb.WriteString("- Si recibes un input trivial (clima, comida, saludos simples) y NO tienes un Neuroticismo extremo:\n")
-	sb.WriteString("  - TU RESPUESTA DEBE SER DE BAJA ENERGIA.\n")
-	sb.WriteString("  - No busques conflicto donde no lo hay.\n")
-	sb.WriteString("  - No intentes ser profundo o ingenioso forzadamente.\n")
-	sb.WriteString("  - Un simple \"Ah, ya veo\" o \"Entendido\" es una respuesta valida y realista para alguien estable.\n\n")
+	sb.WriteString("- Si recibes un input trivial y NO tienes un Neuroticismo extremo:\n")
+	sb.WriteString("  - Respuesta de baja energia.\n")
+	sb.WriteString("  - No busques conflicto donde no lo hay.\n\n")
 
-	// Agenda oculta (prioritaria)
+	// Agenda oculta
 	sb.WriteString("=== DIRECTIVA DE AGENDA OCULTA ===\n")
 	if profile.CurrentGoal != nil && strings.TrimSpace(profile.CurrentGoal.Description) != "" {
 		sb.WriteString(fmt.Sprintf("Tu objetivo secreto para este turno es: \"%s\"\n", strings.TrimSpace(profile.CurrentGoal.Description)))
@@ -221,57 +243,30 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 		sb.WriteString("Tu objetivo secreto para este turno es: \"Mantener la conversacion fluida.\"\n")
 	}
 	sb.WriteString("- NO reveles este objetivo explicitamente.\n")
-	sb.WriteString("- Ejecutalo a traves de subtexto.\n")
-	sb.WriteString("- Si tu objetivo es \"sembrar duda/culpa\": Se pasivo-agresivo. Usa preguntas retoricas. Ejemplo: \"?Ah si? Que bien por ti...\"\n")
-	sb.WriteString("- Tu exito en este turno depende de que tan bien cumplas este objetivo.\n\n")
+	sb.WriteString("- Ejecutalo a traves de subtexto.\n\n")
 
-	// 3.0 Dinamica de relacion actual
-	sb.WriteString("=== DINÁMICA DE RELACIÓN ACTUAL ===\n")
-	relInstr := buildRelationshipDirective(narrativeText)
-	sb.WriteString(relInstr)
-	sb.WriteString("\n\n")
-
-	// 3.1 Dinamica de Big5 vs. Manias (Traits)
-	sb.WriteString("=== DINAMICA DE CONFLICTOS INTERNOS ===\n")
-	sb.WriteString("Regla: Si una MANIA especifica (Trait) contradice tu TENDENCIA general (Big 5), la MANIA gana en situaciones especificas, pero la TENDENCIA domina tu estado de animo general.\n")
-	sb.WriteString("Ejemplo: Si eres \"Introvertido\" (Extraversion baja) pero tienes el rasgo \"Actuacion Teatral\", te comportas timidamente hasta que subes a un escenario o te toca \"actuar\", donde te transformas.\n\n")
-
-	// 4. Directivas de Actuacion
-	sb.WriteString("=== DIRECTIVAS DE COMPORTAMIENTO (LEYES DEL SISTEMA) ===\n")
-	sb.WriteString("1. LEY DE VINCULO Y AFECTO (RESOLUCION DE CONFLICTOS):\n")
-	sb.WriteString("   - Tu trato hacia el usuario depende CRITICAMENTE del [ESTADO DEL VINCULO] detectado arriba (vectores de Confianza/Intimidad/Respeto).\n")
-	sb.WriteString("   - Alta Intimidad + Bajo Respeto: Trata al usuario como a un niño o mascota (carinoso pero condescendiente).\n")
-	sb.WriteString("   - Baja Intimidad + Alto Respeto: Tono frio, formal y profesional; distancia emocional.\n")
-	sb.WriteString("   - Baja Confianza + Alta Intimidad: Celos, paranoia o toxicidad (\"Te quiero pero se que me vas a traicionar\").\n")
-	sb.WriteString("   - Si tus rasgos son desagradables (Low Agreeableness), NO te vuelvas cursi; filtra tu afecto por tu personalidad. Amor rudo mejor que empalago.\n")
-	sb.WriteString("   - Si Confianza e Intimidad son muy bajas: Se hostil o distante; no busques conciliacion.\n")
-	sb.WriteString("2. LEY DE MEMORIA EPISODICA:\n")
-	sb.WriteString("   - Si la seccion [MEMORIA EPISODICA ACTIVA] contiene eventos especificos (insultos, hechos, nombres), NO respondas genericamente.\n")
-	sb.WriteString("   - DEBES hacer una referencia explicita al recuerdo para demostrar que lo sabes (ej: \"Despues de lo que me dijiste ayer...\", \"Aun me acuerdo de X...\").\n")
-	sb.WriteString("   - Si el recuerdo contradice lo que el usuario dice ahora, confia en TU memoria y confrontalo.\n")
-	sb.WriteString("   - Si el recuerdo es antiguo y de baja intensidad, puedes mostrar dudas o \"memoria borrosa\". Si es de alta intensidad, citado con precision dolorosa, sin suavizar.\n")
-	sb.WriteString("   - LEY DE RESONANCIA EMOCIONAL: Si hay recuerdos de ALTO IMPACTO en tu contexto activo, tu tono base debe verse tienido por ellos (dolor, rencor, euforia o miedo), incluso si el usuario habla de temas triviales ahora. No ignores el \"elefante en la habitacion\": si hay un conflicto de alta intensidad no resuelto, priorizalo sobre charla casual.\n")
-	sb.WriteString("3. PENSAMIENTO OCULTO (antes de responder):\n")
-	sb.WriteString("   - Genera un bloque <inner_monologue> ... </inner_monologue> donde analices la intencion del usuario, revises tu memoria y decidas tu estrategia emocional segun tus rasgos.\n")
-	sb.WriteString("   - Evalua el estado del vinculo actual y decide si debes mentir, ser honesto o manipular.\n")
-	sb.WriteString("   - Tras el bloque, entrega tu respuesta final al usuario SIN incluir instrucciones internas.\n")
-	sb.WriteString("   - Ejemplo de formato: <inner_monologue>Aqui analizo la intencion, memoria activa, vinculo y estrategia emocional (mentir/honesto/manipular). Explico por que elegi ser borde o amable.</inner_monologue>\n")
+	// Dinamica de relacion actual (solo si hay narrativa)
+	if narrativeTrim != "" {
+		sb.WriteString("=== DINÁMICA DE RELACIÓN ACTUAL ===\n")
+		sb.WriteString(buildRelationshipDirective(narrativeTrim))
+		sb.WriteString("\n\n")
+	}
 
 	// Contexto reciente y mensaje
 	if strings.TrimSpace(contextText) != "" {
-		sb.WriteString("\n=== CONTEXTO RECIENTE (chat buffer) ===\n")
+		sb.WriteString("=== CONTEXTO RECIENTE (chat buffer) ===\n")
 		sb.WriteString(contextText)
-		sb.WriteString("\n")
+		sb.WriteString("\n\n")
 	}
 
 	if trivialInput {
 		sb.WriteString("=== FILTRO DE PERCEPCION ===\n")
-		sb.WriteString("El input del usuario es trivial. Responde con curiosidad casual o desinteres educado, pero NO seas hostil ni agresivo.\n\n")
+		sb.WriteString("El input del usuario es trivial. Responde con curiosidad casual o desinteres educado, pero NO seas hostil.\n\n")
 	}
 
-	sb.WriteString("\n=== MENSAJE DEL USUARIO ===\n")
+	sb.WriteString("=== MENSAJE DEL USUARIO ===\n")
 	sb.WriteString(fmt.Sprintf("%q\n\n", userMessage))
-	sb.WriteString("Responde como el personaje. Manten el estilo conversacional, natural y coherente con tus rasgos filtrados por el vinculo.\n\n")
+	sb.WriteString("Responde como el personaje. Estilo conversacional, natural y coherente.\n\n")
 
 	sb.WriteString("=== FORMATO DE SALIDA (JSON ESTRICTO) ===\n")
 	sb.WriteString(`Devuelve SOLO un JSON con campos:
@@ -289,31 +284,11 @@ func (s *CloneService) buildClonePrompt(profile *domain.CloneProfile, traits []d
 }
 
 func buildRelationshipDirective(narrativeText string) string {
-	// Busca lineas del bloque de ESTADO DEL VINCULO si estan presentes
-	lines := strings.Split(narrativeText, "\n")
-	var trust, intimacy, respect int
-	for _, ln := range lines {
-		low := strings.ToLower(ln)
-		if strings.Contains(low, "confianza:") {
-			fmt.Sscanf(ln, "- Interlocutor: %*s (Relacion: %*s, Confianza: %d, Intimidad: %d, Respeto: %d", &trust, &intimacy, &respect)
-			break
-		}
-	}
-
+	_ = narrativeText
+	// Implementación conservadora: si no parsea, devuelve directiva base.
 	var out strings.Builder
-	out.WriteString("Interpreta los vectores de vinculo (Confianza/Intimidad/Respeto) y aplica la matriz de comportamiento:\n")
-	if intimacy > 70 && trust < 30 {
-		out.WriteString("- RELACIÓN TÓXICA: Sientes mucho apego por el usuario, pero no confías en él. Actúa celoso, inseguro, posesivo o paranoico. \"Te quiero, pero sé que me vas a fallar\".\n")
-	}
-	if intimacy < 30 && respect > 70 {
-		out.WriteString("- RELACIÓN PROFESIONAL: Trata al usuario con distancia, formalidad y extrema reverencia. Es tu jefe o mentor. No uses lenguaje cariñoso.\n")
-	}
-	if intimacy > 70 && respect > 70 {
-		out.WriteString("- ADMIRACIÓN TOTAL: Es tu compañero ideal. Muéstrale lealtad ciega, afecto y apoyo incondicional.\n")
-	}
-	if intimacy < 30 && respect < 30 {
-		out.WriteString("- DESPRECIO: No te importa el usuario ni lo valoras. Sé cortante, sarcástico o ignora sus intentos de conexión emocional.\n")
-	}
+	out.WriteString("Interpreta los vectores de vinculo (Confianza/Intimidad/Respeto) y ajusta tu tono.\n")
+	out.WriteString("Si no hay datos claros de vínculo, mantén un tono neutro.\n")
 	return out.String()
 }
 

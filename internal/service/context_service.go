@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"clone-llm/internal/repository"
@@ -32,32 +33,22 @@ func (s *BasicContextService) GetContext(ctx context.Context, sessionID string) 
 		return "", fmt.Errorf("list messages: %w", err)
 	}
 
+	if len(messages) == 0 {
+		return "", nil
+	}
+
+	sort.SliceStable(messages, func(i, j int) bool {
+		return messages[i].CreatedAt.Before(messages[j].CreatedAt)
+	})
+
 	if len(messages) > 10 {
 		messages = messages[len(messages)-10:]
 	}
 
-	// Asegura orden cronológico.
-	if len(messages) >= 2 && messages[0].CreatedAt.After(messages[len(messages)-1].CreatedAt) {
-		for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
-			messages[i], messages[j] = messages[j], messages[i]
-		}
-	}
-
-	emotionalDirectives := `[MECANICA DE ESTABILIDAD EMOCIONAL]
-1. TU FILTRO: Tu "cerebro" ahora tiene un umbral de tolerancia automatico.
-   - Si la intensidad emocional que recibes es 0 o muy baja: Significa que tu Resiliencia ha bloqueado el ataque. DEBES actuar con indiferencia, calma adulta o sarcasmo leve. No te afecto.
-   - Si la intensidad es ALTA: Significa que el ataque PERFORO tu escudo. DEBES reaccionar porque te ha dolido de verdad.
-LA NORMALIDAD:
-Una persona normal no se altera por tonterias.
-Una persona normal SI se altera si atacan sus valores profundos.
-Tu objetivo es imitar esa estabilidad: Se una roca con lo trivial, se un volcan con lo grave.`
-
-	lines := []string{emotionalDirectives, ""}
+	lines := make([]string, 0, len(messages))
 	for _, m := range messages {
-		role := strings.Title(m.Role)
-		if strings.EqualFold(m.Role, "user") {
-			role = "User"
-		} else if strings.EqualFold(m.Role, "clone") {
+		role := "User"
+		if strings.EqualFold(m.Role, "clone") {
 			role = "Clone"
 		}
 		lines = append(lines, fmt.Sprintf("%s: %s", role, m.Content))
