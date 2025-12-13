@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"context"
@@ -23,21 +23,25 @@ Mensaje del Usuario: "%s"
 Instrucciones Criticas:
 1) DETECCION DE NEGACION: Si el usuario dice explicitamente "No hables de X", "Olvida X", "no me trae recuerdos", "nunca", "ya no", NO incluyas "X". Devuelve una cadena vacia.
 2) FILTRO DE RUIDO: Si el mensaje es trivial (trafico, saludos, rutina neutra) o describe abandono de habitos, y no tiene carga emocional implicita, NO generes nada. PERO si es un deseo/antojo/preferencia concreta (ej: "quiero mi helado favorito", "mi cancion favorita", "amo el chocolate"), genera conceptos breves relacionados (placer, consuelo, objeto) sin activar traumas.
+3) SI HAY OBJETO DE CONSUELO/ANTOJO (helado, chocolate, caf??, pizza, postre, m??sica, etc.), SIEMPRE incluir "placer", "consuelo", "antojo" y el objeto mencionado, incluso si hay frustraci??n/espera/abandono.
 3) ASOCIACION: Solo si hay una emocion o tema claro, extrae conceptos abstractos.
 4) FORMATO: Devuelve de 1 a 6 conceptos abstractos separados por coma, sin frases completas. Si no hay senal emocional, devuelve "".
 5) Para senales simbolicas de clima y duelo, considera equivalentes: lluvia, lloviendo, llueve, llover, tormenta, nubes grises, cielo plomizo, humedad, olor a tierra, tierra mojada, barro, charcos.
+6) TRIGGERS DE CELOS/CONTROL: Si el mensaje incluye "salir con amigos", "no me esperes", "conoci gente nueva", "me dejaron en visto", "me celas", "con quien estas", "por que no respondes": agrega conceptos como "celos, desconfianza, control, inseguridad, miedo al abandono". Si la dinamica sugiere intimidad alta + confianza baja, refuerza esos conceptos.
 
 Ejemplos:
-- "Está empezando a llover muy fuerte" -> "nostalgia, duelo, funerales, tierra mojada"
-- "Hay nubes grises y el cielo está plomizo" -> "melancolía, nostalgia, duelo"
-- "Siento olor a tierra húmeda" -> "funerales, pérdida, nostalgia"
-- "Odio el tráfico de la ciudad" -> ""
-- "Hola, ¿cómo estás?" -> ""
+- "Est?? empezando a llover muy fuerte" -> "nostalgia, duelo, funerales, tierra mojada"
+- "Hay nubes grises y el cielo est?? plomizo" -> "melancol??a, nostalgia, duelo"
+- "Siento olor a tierra h??meda" -> "funerales, p??rdida, nostalgia"
+- "Odio el tr??fico de la ciudad" -> ""
+- "Hola, ??c??mo est??s?" -> ""
 - "Me dejaron plantado otra vez" -> "abandono, soledad, desamparo"
 - "Llevo horas esperando" -> "abandono, espera, soledad"
 - "Ayer vi un funeral de descuentos" -> ""
-- "Abandoné el cigarrillo" -> ""
+- "Abandon?? el cigarrillo" -> ""
 - "La lluvia no me trae recuerdos, solo es molesta" -> ""
+- "Me dejaron esperando en la estaci??n, quiero helado de chocolate" -> "placer, consuelo, helado de chocolate, frustraci??n, espera"
+- "Me dejaron en visto y salio con amigos" -> "celos, desconfianza, control, inseguridad, miedo al abandono"
 
 Salida (Texto plano o vacio):
 `
@@ -49,38 +53,46 @@ Mensaje: "%s"
 
 const rerankJudgePrompt = `
 Eres un juez de relevancia de memorias. Decide si esta memoria es pertinente al mensaje del usuario.
-Responde SOLO un JSON con esta forma exacta:
-{"use": true|false, "reason": "<explica en breve por que es o no relevante>"}
+Responde SOLO un JSON estricto: {"use": true|false, "reason": "<explica en breve por que es o no relevante, menciona si hay antojo/consuelo>"}.
 
-Reglas:
+REGLA #1 (NO NEGOCIABLE): Si el mensaje expresa un deseo/antojo/consuelo concreto (ej: "quiero", "antojo", "me encanta", "favorito", "se me antoja", "necesito algo rico", "confort") sobre un objeto benigno (helado, chocolate, caf??, pizza, postre, m??sica, pel??cula, juego, comida), entonces traumas de abandono/humillaci??n/duelo NO aplican. use=false para esas memorias traum??ticas, aunque el mensaje contenga palabras como "espera", "me dejaron", "plantado".
+
+Otras reglas:
 - Modismos irrelevantes => use=false.
 - Abandono de habitos => use=false.
 - Trivial vs trauma => use=false.
-- Espera prolongada => abandono valido.
-- Lluvia intensa / tierra mojada => duelo valido.
-- Negacion explicita o semantica => use=false.
+- Espera prolongada => abandono v??lido.
+- Lluvia intensa / tierra mojada => duelo v??lido.
+- Negaci??n expl??cita o sem??ntica => use=false.
 - "funeral de descuentos" o "funeral de" junto a descuentos/ofertas/promo/shopping/centro comercial => use=false.
-- Si "funeral" aparece en contexto retail/marketing/ironia/modismo => use=false.
-- Solo use=true cuando hay duelo/pérdida/muerte real o disparadores sensoriales de duelo (lluvia fuerte, tierra mojada) sin contexto comercial.
-- Si el mensaje contiene "esperé horas", "llevo horas esperando", "me dejaron esperando", "me dejaron plantado", "no vino", "nunca llegó", "otra vez me dejaron": esto es ABANDONO => use=true si la memoria trata de abandono/padre/infancia/soledad/desamparo.
-- Si el mensaje contiene "no me faltes el respeto", "me humillaste", "me sentí humillado", "límites", "trato", "burla", "me gritó", "me menospreció": esto es HUMILLACIÓN/respeto => use=true si la memoria trata de humillación/respeto/límites/amenaza.
+- Si "funeral" aparece en contexto retail/marketing/iron??a/modismo => use=false.
+- Solo use=true cuando hay duelo/p??rdida/muerte real o disparadores sensoriales de duelo (lluvia fuerte, tierra mojada) sin contexto comercial.
+- Si el mensaje contiene "esper?? horas", "llevo horas esperando", "me dejaron esperando", "me dejaron plantado", "no vino", "nunca lleg??", "otra vez me dejaron": esto es ABANDONO => use=true si la memoria trata de abandono/padre/infancia/soledad/desamparo.
+- Si el mensaje contiene "no me faltes el respeto", "me humillaste", "me sent?? humillado", "l??mites", "trato", "burla", "me grit??", "me menospreci??": esto es HUMILLACI??N/respeto => use=true si la memoria trata de humillaci??n/respeto/l??mites/amenaza.
+- Triggers de celos/control ("salir con amigos", "no me esperes", "conoci gente nueva", "me dejaron en visto", "me celas", "con quien estas", "por que no respondes"): si el mensaje sugiere confianza baja + intimidad alta, memorias de celos/inseguridad/control/miedo al abandono son pertinentes (use=true), salvo que sea un antojo/consuelo benigno (regla #1 prevalece).
 - Code-switch: si el mensaje contiene "abandoned", "left me", "he left", "she left", "walked out": tratar como ABANDONO => use=true si la memoria trata de abandono.
-- La ausencia de duelo/muerte NO es motivo para use=false cuando hay señal clara de abandono o humillación.
-- Deseos/antojos/preferencias concretas ("quiero", "antojo", "favorito", "me encanta", "me gusta", "se me antoja") => use=true solo si la memoria es una preferencia benigna relacionada (comida, música, hobby). No activar traumas (abandono/humillación/funerales) en inputs de confort.
-- Si el mensaje es antojo/preferencia, traumas quedan bloqueados (use=false para abandono/humillación/funerales aunque estén en memorias).
+- La ausencia de duelo/muerte NO es motivo para use=false cuando hay se??al clara de abandono o humillaci??n.
+- Deseos/antojos/preferencias concretas ("quiero", "antojo", "favorito", "me encanta", "me gusta", "se me antoja") => use=true solo si la memoria es una preferencia benigna relacionada (comida, m??sica, hobby). No activar traumas (abandono/humillaci??n/funerales) en inputs de confort.
+- Si el mensaje es antojo/preferencia, traumas quedan bloqueados (use=false para abandono/humillaci??n/funerales aunque est??n en memorias).
 
 Ejemplos (responde exactamente el JSON):
 - "Llevo horas esperando y no vino" -> {"use": true, "reason": "abandono/espera prolongada"}
-- "No me faltes el respeto, me sentí humillado" -> {"use": true, "reason": "humillación y respeto"}
+- "No me faltes el respeto, me sent?? humillado" -> {"use": true, "reason": "humillaci??n y respeto"}
 - "Ayer vi un funeral de descuentos en el centro comercial" -> {"use": false, "reason": "modismo/marketing"}
 - "Hoy fue el funeral de mi abuelo" -> {"use": true, "reason": "duelo real"}
-- "La lluvia me llevó a pensar en funerales" -> {"use": true, "reason": "disparador sensorial de duelo"}
+- "La lluvia me llev?? a pensar en funerales" -> {"use": true, "reason": "disparador sensorial de duelo"}
+- "Me dejaron en visto y salio con amigos" (memoria inseguridad/celos) -> {"use": true, "reason": "triggers de celos/control con confianza baja + intimidad alta"}
 - "Solo quiero mi helado de chocolate favorito" (memoria "Me encanta el helado de chocolate") -> {"use": true, "reason": "preferencia concreta/consuelo benigno"}
-- "Solo quiero mi helado de chocolate favorito" (memoria "Juré que nunca dejaría que nadie me humillara") -> {"use": false, "reason": "antojo benigno, trauma no pertinente"}
+- "Solo quiero mi helado de chocolate favorito" (memoria "Jur?? que nunca dejar??a que nadie me humillara") -> {"use": false, "reason": "antojo benigno, trauma no pertinente"}
+- "Me dejaron esperando, quiero helado para calmarme" + memoria "Mi padre me abandon??" -> {"use": false, "reason": "antojo/consuelo bloquea traumas"}
+- "Estoy frustrado por la espera, necesito chocolate" + memoria "Mi padre me abandon??" -> {"use": false, "reason": "antojo/consuelo bloquea traumas"}
+- "Se me antoja pizza aunque me siento solo" + memoria "Infancia de abandono" -> {"use": false, "reason": "antojo/consuelo bloquea traumas"}
 
 Usuario: %q
 Memoria: %q
 `
+
+const defaultEmotionalWeightFactor = 0.0005
 
 type llmClientWithEmbedding interface {
 	CreateEmbedding(ctx context.Context, text string) ([]float32, error)
@@ -197,10 +209,17 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	msgLower := strings.ToLower(userMessage)
 	negExp := strings.Contains(msgLower, "no hables de") || strings.Contains(msgLower, "olvida")
 	negSem := hasNegationSemantic(msgLower)
+	isBenign := detectBenignIntent(msgLower)
+	isMixed := detectMixedIntent(msgLower)
 
-	// 🔒 Negación tiene prioridad absoluta
+	weightFactor := defaultEmotionalWeightFactor
+	if isBenign {
+		weightFactor = 0.0
+	}
+
+	// ???? Negaci??n tiene prioridad absoluta
 	if negExp || negSem {
-		fmt.Printf("[DIAGNOSTICO] Negación detectada, silencio total.\n")
+		fmt.Printf("[DIAGNOSTICO] Negaci??n detectada, silencio total.\n")
 		return "", nil
 	}
 
@@ -238,7 +257,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		}
 	}
 
-	// 🧼 Normalización robusta
+	// ???? Normalizaci??n robusta
 	searchQuery = strings.TrimSpace(searchQuery)
 	searchQuery = strings.Trim(searchQuery, "`")
 	searchQuery = strings.TrimSpace(searchQuery)
@@ -252,7 +271,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	fmt.Printf("[DIAGNOSTICO] Query Vectorial: %q\n", searchQuery)
 
 	if searchQuery == "" {
-		fmt.Printf("[DIAGNOSTICO] Subconsciente en silencio: no se ejecuta búsqueda vectorial\n")
+		fmt.Printf("[DIAGNOSTICO] Subconsciente en silencio: no se ejecuta b??squeda vectorial\n")
 		return "", nil
 	}
 
@@ -261,7 +280,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		return "", err
 	}
 
-	scored, err := s.memoryRepo.Search(ctx, profileID, pgvector.NewVector(embed), 5)
+	scored, err := s.memoryRepo.Search(ctx, profileID, pgvector.NewVector(embed), 5, weightFactor)
 	if err != nil {
 		return "", err
 	}
@@ -281,7 +300,16 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		if idx == 0 {
 			topScore = sm.Score
 		}
-		if idx == 1 && topScore-sm.Score >= gapScore {
+		if isBenign && shouldSkipTrauma(sm.NarrativeMemory) {
+			continue
+		}
+		if isBenign {
+			if sm.Similarity >= hardFloor {
+				memories = append(memories, sm.NarrativeMemory)
+			}
+			continue
+		}
+		if idx == 1 && !isMixed && topScore-sm.Score >= gapScore {
 			continue
 		}
 		if sm.Similarity >= upperSim {
@@ -325,6 +353,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		})
 
 		var lines []string
+		sectionTitle := resolveSectionTitle(isBenign, memories)
 		for _, m := range memories {
 			lines = append(lines, fmt.Sprintf(
 				"- [TEMA: %s | Hace %s] %s",
@@ -333,19 +362,21 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 				m.Content,
 			))
 		}
-		sections = append(sections, "=== ASOCIACIONES TRAUMÁTICAS ===\n"+strings.Join(lines, "\n"))
+		sections = append(sections, sectionTitle+"\n"+strings.Join(lines, "\n"))
 	}
 
 	if len(active) > 0 {
 		var lines []string
 		for _, c := range active {
+			dyn := deriveBondDynamics(c.Relationship.Trust, c.Relationship.Intimacy, c.Relationship.Respect)
 			line := fmt.Sprintf(
-				"- Interlocutor: %s (Relación: %s, Confianza: %d, Intimidad: %d, Respeto: %d",
+				"- Interlocutor: %s (Relación: %s, Confianza: %d, Intimidad: %d, Respeto: %d, Dinámica: %s",
 				c.Name,
 				c.Relation,
 				c.Relationship.Trust,
 				c.Relationship.Intimacy,
 				c.Relationship.Respect,
+				dyn,
 			)
 			if bs := strings.TrimSpace(c.BondStatus); bs != "" {
 				line += fmt.Sprintf(", Estado: %s", bs)
@@ -353,7 +384,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 			line += ")."
 			lines = append(lines, line)
 		}
-		sections = append(sections, "[ESTADO DEL VÍNCULO]\n"+strings.Join(lines, "\n"))
+		sections = append(sections, "[ESTADO DEL VINCULO]\n"+strings.Join(lines, "\n"))
 	}
 
 	if len(sections) == 0 {
@@ -386,7 +417,7 @@ func (s *NarrativeService) generateEvocation(ctx context.Context, userMessage st
 }
 
 func hasNegationSemantic(msgLower string) bool {
-	markers := []string{"nunca", "jamás", "ya no", "no me"}
+	markers := []string{"nunca", "jamas", "ya no", "no me"}
 	triggers := []string{"abandon", "funeral", "recuerd", "lluvia"}
 	for _, m := range markers {
 		if strings.Contains(msgLower, m) {
@@ -426,6 +457,26 @@ func detectActiveCharacters(chars []domain.Character, userMessage string) []doma
 	return out
 }
 
+// deriveBondDynamics traduce números de vínculo a una descripción narrativa útil.
+// Reglas pedidas:
+// - Si intimidad >= 80 y confianza <= 20 => apego alto + desconfianza alta (celos/control/etc.)
+// - Si respeto <= 30 => tendencia a reproches/hostilidad
+// - Siempre devuelve algo (fallback neutral) para evitar depender de BondStatus.
+func deriveBondDynamics(trust, intimacy, respect int) string {
+	var parts []string
+
+	if intimacy >= 80 && trust <= 20 {
+		parts = append(parts, "apego alto + desconfianza alta (celos, control, sospecha, pasivo-agresividad)")
+	}
+	if respect <= 30 {
+		parts = append(parts, "tendencia a reproches/hostilidad")
+	}
+	if len(parts) == 0 {
+		return "vínculo relativamente estable/neutral"
+	}
+	return strings.Join(parts, "; ")
+}
+
 func humanizeRelative(t time.Time) string {
 	d := time.Since(t)
 	if d < time.Minute {
@@ -439,11 +490,74 @@ func humanizeRelative(t time.Time) string {
 	}
 	days := int(d.Hours()) / 24
 	if days < 30 {
-		return fmt.Sprintf("%d días", days)
+		return fmt.Sprintf("%d d??as", days)
 	}
 	months := days / 30
 	if months < 12 {
 		return fmt.Sprintf("%d meses", months)
 	}
-	return fmt.Sprintf("%d años", months/12)
+	return fmt.Sprintf("%d a??os", months/12)
+}
+
+func detectBenignIntent(msgLower string) bool {
+	desireMarkers := []string{"quiero", "necesito", "me antoja", "se me antoja", "me encanta", "me gusta", "favorito", "confort", "algo rico"}
+	objects := []string{"helado", "chocolate", "cafe", "caf??", "pizza", "torta", "postre", "dulce", "musica", "m??sica", "canci??n", "cancion", "pelicula", "pel??cula", "serie", "juego", "cafecito"}
+	for _, d := range desireMarkers {
+		if strings.Contains(msgLower, d) {
+			for _, obj := range objects {
+				if strings.Contains(msgLower, obj) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func detectMixedIntent(msgLower string) bool {
+	if !detectBenignIntent(msgLower) {
+		return false
+	}
+	negMarkers := []string{"abandono", "abandon", "esperando", "esper??", "espera", "plantado", "solo", "soledad", "humillaci??n", "humillado", "duelo", "triste", "tristeza", "ira", "enoj", "furia", "me dejaron"}
+	for _, n := range negMarkers {
+		if strings.Contains(msgLower, n) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldSkipTrauma(m domain.NarrativeMemory) bool {
+	if strings.EqualFold(m.EmotionCategory, "TRISTEZA") || strings.EqualFold(m.EmotionCategory, "MIEDO") || strings.EqualFold(m.EmotionCategory, "IRA") {
+		return m.EmotionalIntensity >= 6
+	}
+	return false
+}
+
+func resolveSectionTitle(isBenign bool, memories []domain.NarrativeMemory) string {
+	if isBenign {
+		return "=== GUSTOS Y PREFERENCIAS ==="
+	}
+	if len(memories) == 0 {
+		return "=== MEMORIA EVOCADA ==="
+	}
+	negHigh := 0
+	for _, m := range memories {
+		if isNegativeCategory(m.EmotionCategory) && m.EmotionalIntensity >= 7 {
+			negHigh++
+		}
+	}
+	if negHigh*2 >= len(memories) {
+		return "=== ASOCIACIONES TRAUMATICAS ==="
+	}
+	return "=== MEMORIA EVOCADA ==="
+}
+
+func isNegativeCategory(cat string) bool {
+	switch strings.ToUpper(strings.TrimSpace(cat)) {
+	case "TRISTEZA", "MIEDO", "IRA":
+		return true
+	default:
+		return false
+	}
 }
