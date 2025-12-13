@@ -77,6 +77,12 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 		}
 	}
 
+	// === FIX: veto relacional sobre trivialidad ===
+	isHighTension := false
+	if strings.TrimSpace(narrativeText) != "" {
+		isHighTension = detectHighTensionFromNarrative(narrativeText)
+	}
+
 	// Analizar intensidad emocional y decidir si persistir recuerdo
 	emotionalIntensity := 10
 	emotionCategory := "NEUTRAL"
@@ -94,10 +100,19 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	}
 
 	// Filtro: si el input es bajo y neutro/negativo leve, no lo elevamos a memoria
+	// === FIX: si hay tensión relacional, NO puede ser trivial ===
 	effectiveIntensity := emotionalIntensity
 	if emotionalIntensity < 30 && (isNegativeEmotion(emotionCategory) || isNeutralEmotion(emotionCategory)) {
-		effectiveIntensity = 0
-		trivialInput = true
+		if !isHighTension {
+			effectiveIntensity = 0
+			trivialInput = true
+		} else {
+			// Relación tensa: forzamos atención mínima aunque el analyzer lo pinte neutro.
+			trivialInput = false
+			if effectiveIntensity < 20 {
+				effectiveIntensity = 20
+			}
+		}
 	}
 
 	// Modelo ReLu de intensidad efectiva basado en resiliencia/Big5
@@ -106,7 +121,8 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	effectiveIntensity = int(math.Round(effective))
 
 	// Si la resiliencia es alta y no hubo activación, tratamos como trivial
-	if effectiveIntensity == 0 && resilience >= 0.5 {
+	// === FIX: excepto si hay alta tensión relacional ===
+	if effectiveIntensity == 0 && resilience >= 0.5 && !isHighTension {
 		trivialInput = true
 	}
 
@@ -196,7 +212,10 @@ func (s *CloneService) buildClonePrompt(
 
 	// 2. Contexto Narrativo (solo si existe)
 	narrativeTrim := strings.TrimSpace(narrativeText)
+	isHighTension := false
 	if narrativeTrim != "" {
+		isHighTension = detectHighTensionFromNarrative(narrativeTrim)
+
 		sb.WriteString("=== 🚨 CONTEXTO Y MEMORIA (PRIORIDAD SUPREMA) ===\n")
 		sb.WriteString("La siguiente informacion es FACTUAL y debe regir tu respuesta:\n")
 		sb.WriteString(narrativeTrim)
@@ -246,13 +265,6 @@ func (s *CloneService) buildClonePrompt(
 	sb.WriteString("- NO reveles este objetivo explicitamente.\n")
 	sb.WriteString("- Ejecutalo a traves de subtexto.\n\n")
 
-	// Dinamica de relacion actual (solo si hay narrativa)
-	if narrativeTrim != "" {
-		sb.WriteString("=== DINÁMICA DE RELACIÓN ACTUAL ===\n")
-		sb.WriteString(buildRelationshipDirective(narrativeTrim))
-		sb.WriteString("\n\n")
-	}
-
 	// Contexto reciente y mensaje
 	if strings.TrimSpace(contextText) != "" {
 		sb.WriteString("=== CONTEXTO RECIENTE (chat buffer) ===\n")
@@ -260,9 +272,21 @@ func (s *CloneService) buildClonePrompt(
 		sb.WriteString("\n\n")
 	}
 
+	// === FIX: filtro trivial NO puede aplastar tensión ===
 	if trivialInput {
 		sb.WriteString("=== FILTRO DE PERCEPCION ===\n")
-		sb.WriteString("El input del usuario es trivial. Responde con curiosidad casual o desinteres educado, pero NO seas hostil.\n\n")
+		if isHighTension {
+			sb.WriteString("El input parece superficial, pero hay tensión en el vínculo. Mantén energía moderada y lee el subtexto con sospecha/celos si aplica.\n\n")
+		} else {
+			sb.WriteString("El input del usuario es trivial. Responde con curiosidad casual o desinteres educado, pero NO seas hostil.\n\n")
+		}
+	}
+
+	// === FIX: Dinámica de relación al FINAL (recency effect) ===
+	if narrativeTrim != "" {
+		sb.WriteString("=== DINÁMICA DE RELACIÓN ACTUAL ===\n")
+		sb.WriteString(buildRelationshipDirective(narrativeTrim))
+		sb.WriteString("\n\n")
 	}
 
 	sb.WriteString("=== MENSAJE DEL USUARIO ===\n")
@@ -290,6 +314,8 @@ func buildRelationshipDirective(narrativeText string) string {
 	var out strings.Builder
 	out.WriteString("Interpreta los vectores de vinculo (Confianza/Intimidad/Respeto) y ajusta tu tono.\n")
 	out.WriteString("Si no hay datos claros de vínculo, mantén un tono neutro.\n")
+	out.WriteString("Si la intimidad es alta y la confianza es baja: expresa celos, sospecha, control o inseguridad (sin decir que es un prompt).\n")
+	out.WriteString("Si el respeto es muy bajo: agrega reproches, fricción o hostilidad.\n")
 	return out.String()
 }
 
@@ -327,6 +353,31 @@ func (s *CloneService) CalculateReaction(rawIntensity float64, traits domain.Big
 		EffectiveIntensity:  effectiveIntensity,
 		IsTriggered:         effectiveIntensity > 0,
 	}
+}
+
+// detectHighTensionFromNarrative detecta señales de vínculo tenso a partir del texto narrativo.
+// Es rústico a propósito: sirve como "veto" para evitar que el filtro trivial mate la relación.
+func detectHighTensionFromNarrative(narrativeText string) bool {
+	l := strings.ToLower(narrativeText)
+
+	signals := []string{
+		"desconfianza",
+		"celos",
+		"control",
+		"sospecha",
+		"pasivo-agres",
+		"hostilidad",
+		"reproches",
+		"amor toxico", "amor tóxico",
+		"toxic", "tóxic",
+	}
+
+	for _, s := range signals {
+		if strings.Contains(l, s) {
+			return true
+		}
+	}
+	return false
 }
 
 //
@@ -375,20 +426,13 @@ func parseLLMResponseSafe(raw string) (domain.LLMResponse, bool) {
 	return llmResp, true
 }
 
-// jsonUnmarshalLLMResponse encapsula el unmarshal para evitar agregar encoding/json en imports aquí
-// si en tu proyecto domain.LLMResponse vive con tags JSON estándar.
-// Si ya tenés encoding/json importado en otro archivo del mismo package service,
-// podés reemplazar esta función por json.Unmarshal directo o moverla a un archivo común.
+// jsonUnmarshalLLMResponse encapsula el unmarshal evitando leaks.
+// En este proyecto se prioriza extraer public_response sin tocar inner_monologue.
 func jsonUnmarshalLLMResponse(raw string, out *domain.LLMResponse) error {
-	// Nota: usamos strconv.Unquote hack para evitar depender de encoding/json aquí.
-	// Pero realmente, lo ideal es usar encoding/json. Si preferís, decime y lo dejo con json.Unmarshal.
-	// En la práctica, en tu repo probablemente ya se importa encoding/json en este package.
-	// Para evitar rarezas, esto hace un parse mínimo por regex (solo public_response).
 	if pr, ok := extractPublicResponseByRegex(raw); ok {
 		out.PublicResponse = pr
 		return nil
 	}
-	// si no podemos extraer public_response, reportamos error
 	return fmt.Errorf("could not extract public_response")
 }
 
