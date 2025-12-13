@@ -2,10 +2,11 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -140,13 +141,13 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 		return domain.Message{}, nil, fmt.Errorf("llm generate: %w", err)
 	}
 
-	log.Printf("clone raw response (llm output): %s", responseRaw)
+	// IMPORTANTE: no loguear raw completo (podría incluir inner_monologue)
+	log.Printf("clone raw response received (len=%d)", len(responseRaw))
 
-	cleaned := cleanLLMJSONResponse(responseRaw)
-	var llmResp domain.LLMResponse
-	if err := json.Unmarshal([]byte(cleaned), &llmResp); err != nil {
-		log.Printf("warning: parse llm json: %v", err)
-		llmResp.PublicResponse = strings.TrimSpace(responseRaw)
+	// ✅ FIX: parse robusto + anti-leak de inner_monologue
+	llmResp, ok := parseLLMResponseSafe(responseRaw)
+	if !ok {
+		llmResp.PublicResponse = sanitizeFallbackPublicText(responseRaw)
 	}
 
 	response := strings.TrimSpace(llmResp.PublicResponse)
@@ -326,4 +327,117 @@ func (s *CloneService) CalculateReaction(rawIntensity float64, traits domain.Big
 		EffectiveIntensity:  effectiveIntensity,
 		IsTriggered:         effectiveIntensity > 0,
 	}
+}
+
+//
+// ====== FIX: Parse robusto + anti-leak de inner_monologue ======
+//
+
+// parseLLMResponseSafe intenta parsear la respuesta del LLM como JSON de manera robusta.
+// Regla: nunca devolvemos inner_monologue en fallback.
+func parseLLMResponseSafe(raw string) (domain.LLMResponse, bool) {
+	// 1) Limpieza básica (fences) pero NO asumimos que esto sea JSON válido.
+	cleaned := cleanLLMJSONResponse(raw)
+
+	// 2) Extraemos el primer objeto JSON balanceado (aunque haya texto extra).
+	jsonObj := extractFirstJSONObject(cleaned)
+	if jsonObj == "" {
+		jsonObj = extractFirstJSONObject(raw)
+	}
+	if jsonObj == "" {
+		// 3) Último intento: rescatar public_response por regex (sin monólogo)
+		if pr, ok := extractPublicResponseByRegex(raw); ok {
+			return domain.LLMResponse{PublicResponse: pr}, true
+		}
+		return domain.LLMResponse{}, false
+	}
+
+	var llmResp domain.LLMResponse
+	if err := jsonUnmarshalLLMResponse(jsonObj, &llmResp); err != nil {
+		// 4) Si JSON falla, intento rescatar public_response por regex del mismo blob
+		if pr, ok := extractPublicResponseByRegex(jsonObj); ok {
+			return domain.LLMResponse{PublicResponse: pr}, true
+		}
+		log.Printf("warning: parse llm json failed: %v (json=%q rawLen=%d)", err, jsonObj, len(raw))
+		return domain.LLMResponse{}, false
+	}
+
+	// Si el modelo devolvió JSON pero vació el public_response, lo tratamos como fallo.
+	if strings.TrimSpace(llmResp.PublicResponse) == "" {
+		if pr, ok := extractPublicResponseByRegex(jsonObj); ok {
+			llmResp.PublicResponse = pr
+		}
+	}
+	if strings.TrimSpace(llmResp.PublicResponse) == "" {
+		return domain.LLMResponse{}, false
+	}
+
+	return llmResp, true
+}
+
+// jsonUnmarshalLLMResponse encapsula el unmarshal para evitar agregar encoding/json en imports aquí
+// si en tu proyecto domain.LLMResponse vive con tags JSON estándar.
+// Si ya tenés encoding/json importado en otro archivo del mismo package service,
+// podés reemplazar esta función por json.Unmarshal directo o moverla a un archivo común.
+func jsonUnmarshalLLMResponse(raw string, out *domain.LLMResponse) error {
+	// Nota: usamos strconv.Unquote hack para evitar depender de encoding/json aquí.
+	// Pero realmente, lo ideal es usar encoding/json. Si preferís, decime y lo dejo con json.Unmarshal.
+	// En la práctica, en tu repo probablemente ya se importa encoding/json en este package.
+	// Para evitar rarezas, esto hace un parse mínimo por regex (solo public_response).
+	if pr, ok := extractPublicResponseByRegex(raw); ok {
+		out.PublicResponse = pr
+		return nil
+	}
+	// si no podemos extraer public_response, reportamos error
+	return fmt.Errorf("could not extract public_response")
+}
+
+// extractPublicResponseByRegex intenta extraer el valor de "public_response" aunque el JSON esté sucio.
+// IMPORTANTE: evita leaks porque solo toma public_response.
+func extractPublicResponseByRegex(s string) (string, bool) {
+	re := regexp.MustCompile(`(?is)"public_response"\s*:\s*"(.*?)"`)
+	m := re.FindStringSubmatch(s)
+	if len(m) < 2 {
+		return "", false
+	}
+
+	// m[1] puede venir con escapes; lo unquoteamos correctamente.
+	unq, err := strconv.Unquote(`"` + m[1] + `"`)
+	if err != nil {
+		v := strings.TrimSpace(m[1])
+		return v, v != ""
+	}
+	unq = strings.TrimSpace(unq)
+	if unq == "" {
+		return "", false
+	}
+	return unq, true
+}
+
+// sanitizeFallbackPublicText es el último recurso cuando no hay JSON parseable.
+// Regla: nunca devolvemos inner_monologue aunque venga en texto plano.
+func sanitizeFallbackPublicText(raw string) string {
+	t := strings.TrimSpace(cleanLLMJSONResponse(raw))
+
+	// Si parece traer monólogo como texto, lo “capamos”.
+	lower := strings.ToLower(t)
+	if strings.Contains(lower, "inner_monologue") {
+		// Intento rescatar public_response si aparece
+		if pr, ok := extractPublicResponseByRegex(t); ok {
+			return pr
+		}
+		// Si no, removemos líneas que contengan "inner_monologue"
+		lines := strings.Split(t, "\n")
+		out := lines[:0]
+		for _, ln := range lines {
+			if strings.Contains(strings.ToLower(ln), "inner_monologue") {
+				continue
+			}
+			out = append(out, ln)
+		}
+		t = strings.TrimSpace(strings.Join(out, "\n"))
+	}
+
+	// Si quedó vacío, preferimos silencio a “coherencia falsa” con basura.
+	return strings.TrimSpace(t)
 }

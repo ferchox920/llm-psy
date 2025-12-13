@@ -308,24 +308,3 @@ func (s *NarrativeService) judgeMemory(ctx context.Context, userMessage, memoryC
 	}
 	return out.Use, out.Reason, nil
 }
-
-// extractFirstJSONObject devuelve el primer objeto {...} balanceado que encuentre.
-func extractFirstJSONObject(s string) string {
-	start := strings.Index(s, "{")
-	if start < 0 {
-		return ""
-	}
-	depth := 0
-	for i := start; i < len(s); i++ {
-		switch s[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return s[start : i+1]
-			}
-		}
-	}
-	return ""
-}
