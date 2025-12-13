@@ -14,7 +14,7 @@ import (
 
 type MemoryRepository interface {
 	Create(ctx context.Context, memory domain.NarrativeMemory) error
-	Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int) ([]ScoredMemory, error)
+	Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int, emotionalWeightFactor float64) ([]ScoredMemory, error)
 	ListByCharacter(ctx context.Context, characterID uuid.UUID) ([]domain.NarrativeMemory, error)
 }
 
@@ -70,7 +70,7 @@ func (r *PgMemoryRepository) Create(ctx context.Context, memory domain.Narrative
 	return err
 }
 
-func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int) ([]ScoredMemory, error) {
+func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int, emotionalWeightFactor float64) ([]ScoredMemory, error) {
 	if k <= 0 {
 		k = 5
 	}
@@ -92,7 +92,7 @@ func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, qu
 			(1 - (embedding <=> $2)) AS similarity,
 			(
 				(1 - (embedding <=> $2)) -- similitud vectorial
-				+ (COALESCE(emotional_intensity, 10) * 0.0005) -- refuerzo por carga emocional (ajuste 0.0005)
+				+ (COALESCE(emotional_intensity, 10) * COALESCE(emotional_weight, 5) * $4) -- refuerzo emocional ponderado
 				- (EXTRACT(EPOCH FROM (NOW() - created_at)) / 86400.0 * 0.01) -- olvido por antiguedad (dias)
 			) AS score
 		FROM narrative_memories
@@ -100,7 +100,7 @@ func (r *PgMemoryRepository) Search(ctx context.Context, profileID uuid.UUID, qu
 		ORDER BY score DESC
 		LIMIT $3
 	`
-	rows, err := r.pool.Query(ctx, query, profileID, queryEmbedding, k)
+	rows, err := r.pool.Query(ctx, query, profileID, queryEmbedding, k, emotionalWeightFactor)
 	if err != nil {
 		return nil, err
 	}

@@ -393,7 +393,7 @@ func runPersonalityTest(ctx context.Context, testSvc *service.TestService, userI
 	questions := testSvc.GenerateInitialQuestions()
 	responses := make(map[string]string)
 
-	fmt.Println("\n--- TEST DE PERSONALIDAD OCEAN (5 Preguntas) ---")
+	fmt.Printf("\n🧠 TEST DE PERSONALIDAD BIG FIVE (%d Preguntas)\n", len(questions))
 	fmt.Println("Por favor, responde honestamente para inicializar la personalidad del clon.")
 
 	for i, q := range questions {

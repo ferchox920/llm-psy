@@ -445,7 +445,7 @@ func (m *memoryMemoryRepo) Create(ctx context.Context, memory domain.NarrativeMe
 }
 
 // Mock de Search: Filtra por string basico en lugar de vector
-func (m *memoryMemoryRepo) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int) ([]repository.ScoredMemory, error) {
+func (m *memoryMemoryRepo) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int, emotionalWeightFactor float64) ([]repository.ScoredMemory, error) {
 	if m.filter == "" {
 		return nil, nil
 	}
