@@ -41,6 +41,7 @@ Eres un juez de relevancia de memorias. Decide si esta memoria es pertinente al 
 Responde SOLO un JSON estricto: {"use": true|false, "reason": "<explica en breve por que es o no relevante, menciona si hay antojo/consuelo>"}.
 
 REGLA #1 (NO NEGOCIABLE): Si el mensaje expresa un deseo/antojo/consuelo concreto (ej: "quiero", "antojo", "me encanta", "favorito", "se me antoja", "necesito algo rico", "confort") sobre un objeto benigno (helado, chocolate, caf??, pizza, postre, m??sica, pel??cula, juego, comida), entonces traumas de abandono/humillaci??n/duelo NO aplican. use=false para esas memorias traum??ticas, aunque el mensaje contenga palabras como "espera", "me dejaron", "plantado".
+EXCEPCION CRITICA: Si la memoria candidata es de CONFLICTO RECIENTE, INSULTO DIRECTO, amenaza relacional activa o tiene EmotionalIntensity >= 80, entonces use=true aunque el mensaje actual sea benigno/trivial (clima, tostadas, antojos). Conflicto de alta intensidad tiene prioridad sobre trivialidad.
 
 Otras reglas:
 - Modismos irrelevantes => use=false.

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -55,6 +56,10 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 		return domain.Message{}, nil, fmt.Errorf("get profile: %w", err)
 	}
 
+	analysisSummary := AnalysisResult{
+		Input: strings.TrimSpace(userMessage),
+	}
+
 	profileUUID, parseErr := uuid.Parse(profile.ID)
 
 	traits, err := s.traitRepo.FindByProfileID(ctx, profile.ID)
@@ -86,6 +91,13 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 		log.Printf("debug: narrative tension=%t text=%q", isHighTension, narrativeText)
 	}
 
+	// Snapshot del estado del vínculo (si existe) para metas/contexto
+	if s.narrativeService != nil && parseErr == nil {
+		if rel, ok := s.snapshotRelationship(ctx, profileUUID, userMessage); ok {
+			analysisSummary.Relationship = rel
+		}
+	}
+
 	// Analizar intensidad emocional y decidir si persistir recuerdo
 	emotionalIntensity := 10
 	emotionCategory := "NEUTRAL"
@@ -101,6 +113,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 			emotionCategory = emo.EmotionCategory
 		}
 	}
+	analysisSummary.Sentiment = mapEmotionToSentiment(emotionCategory)
 
 	// Filtro: si el input es bajo y neutro/negativo leve, no lo elevamos a memoria
 	// === FIX: si hay tensión relacional, NO puede ser trivial ===
@@ -157,6 +170,19 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 			emotionCategory,
 		); err != nil {
 			log.Printf("warning: inject memory: %v", err)
+		}
+	}
+
+	analysisSummary.IsTrivial = trivialInput
+
+	goal := DetermineGoal(profile, analysisSummary)
+	profile.CurrentGoal = &goal
+	if strings.TrimSpace(goal.Trigger) != "" && !strings.EqualFold(goal.Trigger, "default") && strings.TrimSpace(goal.Description) != "" {
+		obj := "[OBJETIVO]\n- " + strings.TrimSpace(goal.Description)
+		if strings.TrimSpace(narrativeText) != "" {
+			narrativeText = strings.TrimSpace(narrativeText) + "\n\n" + obj
+		} else {
+			narrativeText = obj
 		}
 	}
 
@@ -229,6 +255,11 @@ func (s *CloneService) buildClonePrompt(
 		sb.WriteString("=== 🚨 CONTEXTO Y MEMORIA (PRIORIDAD SUPREMA) ===\n")
 		sb.WriteString("La siguiente informacion es FACTUAL y debe regir tu respuesta:\n")
 		sb.WriteString(narrativeTrim)
+		if strings.Contains(strings.ToUpper(narrativeTrim), "[ESTADO INTERNO]") {
+			sb.WriteString("\n")
+			sb.WriteString("REGLA: Si aparece [ESTADO INTERNO] con emocion negativa residual, tu tono debe reflejar tension contenida incluso si el input es trivial. No inventes hechos; solo deja ver frialdad/ironia leve/defensividad como subtexto.\n")
+			sb.WriteString("\n")
+		}
 		sb.WriteString("\n\n")
 	}
 
@@ -292,10 +323,14 @@ func (s *CloneService) buildClonePrompt(
 		}
 	}
 
-	// === FIX: Dinámica de relación al FINAL (recency effect) ===
+	// === FIX: Dinamica de relacion al FINAL (recency effect) ===
 	if narrativeTrim != "" {
-		sb.WriteString("=== DINÁMICA DE RELACIÓN ACTUAL ===\n")
+		sb.WriteString("=== DINAMICA DE RELACION ACTUAL ===\n")
 		sb.WriteString(buildRelationshipDirective(narrativeTrim))
+		sb.WriteString("\n")
+		sb.WriteString("- Si el contexto marca un MODO (ej: CELOS PATOLOGICOS), DEBES actuar en ese modo aunque el input parezca neutro.\n")
+		sb.WriteString("- Prioriza ese MODO por encima de las reglas de trivialidad: sospecha/celos/ironia primero; trivialidad despues.\n")
+		sb.WriteString("- Lee cualquier subtexto buscando motivos de celos, control o reproche.\n")
 		sb.WriteString("\n\n")
 	}
 
@@ -316,6 +351,36 @@ func (s *CloneService) buildClonePrompt(
 `)
 
 	return sb.String()
+}
+
+func mapEmotionToSentiment(category string) string {
+	cat := strings.ToLower(strings.TrimSpace(category))
+	switch cat {
+	case "alegria", "amor", "felicidad", "gratitud":
+		return "Positive"
+	case "ira", "miedo", "asco", "tristeza", "odio", "enfado":
+		return "Negative"
+	default:
+		return "Neutral"
+	}
+}
+
+// snapshotRelationship intenta recuperar el vinculo activo (o el primero disponible) para usarlo en metas.
+func (s *CloneService) snapshotRelationship(ctx context.Context, profileID uuid.UUID, userMessage string) (domain.RelationshipVectors, bool) {
+	if s.narrativeService == nil || profileID == uuid.Nil {
+		return domain.RelationshipVectors{}, false
+	}
+
+	chars, err := s.narrativeService.characterRepo.ListByProfileID(ctx, profileID)
+	if err != nil || len(chars) == 0 {
+		return domain.RelationshipVectors{}, false
+	}
+
+	active := detectActiveCharacters(chars, userMessage)
+	if len(active) == 0 {
+		active = chars
+	}
+	return active[0].Relationship, true
 }
 
 func buildRelationshipDirective(narrativeText string) string {
@@ -371,6 +436,18 @@ func detectHighTensionFromNarrative(narrativeText string) bool {
 	l := strings.ToLower(narrativeText)
 
 	signals := []string{
+		"estado interno",
+		"emocion residual",
+		"emocion residual dominante",
+		"emoción residual",
+		"emoción residual dominante",
+		"ira",
+		"miedo",
+		"tristeza",
+		"furia",
+		"enojo",
+		"insulto",
+		"pelea",
 		"desconfianza",
 		"confianza baja",
 		"poca confianza",
@@ -415,7 +492,7 @@ func detectHighTensionFromNarrative(narrativeText string) bool {
 // parseLLMResponseSafe intenta parsear la respuesta del LLM como JSON de manera robusta.
 // Regla: nunca devolvemos inner_monologue en fallback.
 func parseLLMResponseSafe(raw string) (domain.LLMResponse, bool) {
-	// 1) Limpieza básica (fences) pero NO asumimos que esto sea JSON válido.
+	// 1) Limpieza basica (fences) pero NO asumimos que esto sea JSON valido.
 	cleaned := cleanLLMJSONResponse(raw)
 
 	// 2) Extraemos el primer objeto JSON balanceado (aunque haya texto extra).
@@ -423,45 +500,56 @@ func parseLLMResponseSafe(raw string) (domain.LLMResponse, bool) {
 	if jsonObj == "" {
 		jsonObj = extractFirstJSONObject(raw)
 	}
-	if jsonObj == "" {
-		// 3) Último intento: rescatar public_response por regex (sin monólogo)
-		if pr, ok := extractPublicResponseByRegex(raw); ok {
-			return domain.LLMResponse{PublicResponse: pr}, true
+
+	tryUnmarshal := func(candidate string) (domain.LLMResponse, bool) {
+		var tmp struct {
+			InnerMonologue string   `json:"inner_monologue"`
+			PublicResponse string   `json:"public_response"`
+			TrustDelta     *float64 `json:"trust_delta,omitempty"`
+			IntimacyDelta  *float64 `json:"intimacy_delta,omitempty"`
+			RespectDelta   *float64 `json:"respect_delta,omitempty"`
+			NewState       string   `json:"new_state,omitempty"`
 		}
-		return domain.LLMResponse{}, false
+		if err := json.Unmarshal([]byte(candidate), &tmp); err != nil {
+			return domain.LLMResponse{}, false
+		}
+		if strings.TrimSpace(tmp.PublicResponse) == "" {
+			return domain.LLMResponse{}, false
+		}
+		return domain.LLMResponse{
+			PublicResponse: strings.TrimSpace(tmp.PublicResponse),
+			InnerMonologue: "",
+		}, true
 	}
 
-	var llmResp domain.LLMResponse
-	if err := jsonUnmarshalLLMResponse(jsonObj, &llmResp); err != nil {
-		// 4) Si JSON falla, intento rescatar public_response por regex del mismo blob
-		if pr, ok := extractPublicResponseByRegex(jsonObj); ok {
-			return domain.LLMResponse{PublicResponse: pr}, true
-		}
-		log.Printf("warning: parse llm json failed: %v (json=%q rawLen=%d)", err, jsonObj, len(raw))
-		return domain.LLMResponse{}, false
-	}
-
-	// Si el modelo devolvió JSON pero vació el public_response, lo tratamos como fallo.
-	if strings.TrimSpace(llmResp.PublicResponse) == "" {
-		if pr, ok := extractPublicResponseByRegex(jsonObj); ok {
-			llmResp.PublicResponse = pr
+	if jsonObj != "" {
+		if resp, ok := tryUnmarshal(jsonObj); ok {
+			return resp, true
 		}
 	}
-	if strings.TrimSpace(llmResp.PublicResponse) == "" {
-		return domain.LLMResponse{}, false
+	if resp, ok := tryUnmarshal(cleaned); ok {
+		return resp, true
+	}
+	if resp, ok := tryUnmarshal(raw); ok {
+		return resp, true
 	}
 
-	return llmResp, true
+	// Fall back: devolvemos texto sanitizado completo, sin recortar.
+	fallback := sanitizeFallbackPublicText(raw)
+	if strings.TrimSpace(fallback) == "" {
+		return domain.LLMResponse{}, false
+	}
+	return domain.LLMResponse{PublicResponse: fallback}, true
 }
 
-// jsonUnmarshalLLMResponse encapsula el unmarshal evitando leaks.
-// En este proyecto se prioriza extraer public_response sin tocar inner_monologue.
+// jsonUnmarshalLLMResponse queda como compat, delegando al unmarshal robusto.
 func jsonUnmarshalLLMResponse(raw string, out *domain.LLMResponse) error {
-	if pr, ok := extractPublicResponseByRegex(raw); ok {
-		out.PublicResponse = pr
-		return nil
+	resp, ok := parseLLMResponseSafe(raw)
+	if !ok || strings.TrimSpace(resp.PublicResponse) == "" {
+		return fmt.Errorf("could not extract public_response")
 	}
-	return fmt.Errorf("could not extract public_response")
+	*out = resp
+	return nil
 }
 
 // extractPublicResponseByRegex intenta extraer el valor de "public_response" aunque el JSON esté sucio.

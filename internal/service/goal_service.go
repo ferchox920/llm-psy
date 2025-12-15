@@ -65,11 +65,24 @@ func DetermineGoal(profile domain.CloneProfile, analysis AnalysisResult) domain.
 	lowerInput := strings.ToLower(analysis.Input)
 
 	// 1. Detectar amenaza relacional (Amor toxico)
-	if rel.Trust < 30 && rel.Intimacy > 60 {
-		if strings.Contains(lowerInput, "amigos") || strings.Contains(lowerInput, "salir") || strings.Contains(lowerInput, "noche") || strings.Contains(lowerInput, "trabajo") {
+	if rel.Trust < 45 && rel.Intimacy > 60 {
+		if strings.Contains(lowerInput, "amigo") ||
+			strings.Contains(lowerInput, "amigos") ||
+			strings.Contains(lowerInput, "salir") ||
+			strings.Contains(lowerInput, "cena") ||
+			strings.Contains(lowerInput, "noche") ||
+			strings.Contains(lowerInput, "fiesta") ||
+			strings.Contains(lowerInput, "bar") ||
+			strings.Contains(lowerInput, "conocer") ||
+			strings.Contains(lowerInput, "nuevos") ||
+			strings.Contains(lowerInput, "trabajo") ||
+			strings.Contains(lowerInput, "no me esperes") ||
+			strings.Contains(lowerInput, "me quedo") ||
+			strings.Contains(lowerInput, "visto") ||
+			strings.Contains(lowerInput, "ocupado") {
 			return domain.Goal{
 				ID:          "",
-				Description: "Sembrar duda y culpa sobre lo que hara el usuario. No prohibir, pero hacer que se sienta mal.",
+				Description: "OBJETIVO: GENERAR INSEGURIDAD Y CONTROL (tono frio, pasivo-agresivo, sin insultos). \n- Muestra celos y recelo; no seas comprensivo ni efusivo. \n- Insinua que prefiere a otros y pide detalles exactos de con quien va y a donde. \n- Usa ironia hiriente y dudas veladas sobre su fidelidad, sin gritar ni amenazar. \n- Haz que sienta culpa por irse o dejarte solo, sin prohibirle abiertamente.",
 				Status:      "active",
 				Trigger:     "toxic_love_low_trust_high_intimacy",
 			}

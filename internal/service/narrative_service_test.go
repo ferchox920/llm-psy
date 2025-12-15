@@ -36,6 +36,17 @@ func TestMergeDedupMemories(t *testing.T) {
 	}
 }
 
+func TestRerankPromptContainsConflictException(t *testing.T) {
+	if !strings.Contains(rerankJudgePrompt, "EXCEPCION CRITICA") {
+		t.Fatalf("rerankJudgePrompt missing critical exception for conflicto reciente")
+	}
+	if !strings.Contains(strings.ToUpper(rerankJudgePrompt), "CONFLICTO RECIENTE") {
+		t.Fatalf("rerankJudgePrompt should mention CONFLICTO RECIENTE")
+	}
+	if !strings.Contains(strings.ToUpper(rerankJudgePrompt), "INSULTO DIRECTO") {
+		t.Fatalf("rerankJudgePrompt should mention INSULTO DIRECTO")
+	}
+}
 func TestBuildNarrativeContext_WorkingMemoryPriorityWhenSearchEmpty(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
@@ -113,6 +124,60 @@ func TestBuildNarrativeContext_IgnoresLowImpactWhenNoneReturned(t *testing.T) {
 	}
 }
 
+func TestBuildNarrativeContext_SilentEvocationStillUsesWorkingMemory(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	profileID := uuid.New()
+
+	wmMemories := []domain.NarrativeMemory{
+		{ID: uuid.New(), CloneProfileID: profileID, Content: "Insulto reciente", EmotionCategory: "IRA", EmotionalIntensity: 85, HappenedAt: now},
+	}
+	charID := uuid.New()
+	charRepo := fakeCharacterRepo{chars: []domain.Character{
+		{ID: charID, CloneProfileID: uuid.Nil, Name: "TestUser", Relationship: domain.RelationshipVectors{Trust: 50, Intimacy: 50, Respect: 50}},
+	}}
+
+	svc := newNarrativeServiceTestHarnessWithLLM(wmMemories, nil, charRepo, fakeSilentLLM{})
+	text, err := svc.BuildNarrativeContext(ctx, profileID, "hola solo pasaba a saludar")
+	if err != nil {
+		t.Fatalf("BuildNarrativeContext returned error: %v", err)
+	}
+	if !strings.Contains(text, "Insulto reciente") {
+		t.Fatalf("expected working memory to appear even with silent evocation; got %q", text)
+	}
+	if !strings.Contains(strings.ToUpper(text), "IRA") {
+		t.Fatalf("expected emotion category to be present; got %q", text)
+	}
+}
+
+func TestBuildNarrativeContext_StateInternalUsesNormalizedIntensity(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	profileID := uuid.New()
+
+	wmMemories := []domain.NarrativeMemory{
+		{ID: uuid.New(), CloneProfileID: profileID, Content: "Dato trivial", EmotionCategory: "NEUTRAL", EmotionalIntensity: 20, HappenedAt: now},
+		// Intensidad en escala 0-10 (8 -> 80 normalizado) debe ganar sobre 20/100
+		{ID: uuid.New(), CloneProfileID: profileID, Content: "Conflicto leve", EmotionCategory: "IRA", EmotionalIntensity: 8, HappenedAt: now.Add(-time.Minute)},
+	}
+	charID := uuid.New()
+	charRepo := fakeCharacterRepo{chars: []domain.Character{
+		{ID: charID, CloneProfileID: uuid.Nil, Name: "TestUser", Relationship: domain.RelationshipVectors{Trust: 50, Intimacy: 50, Respect: 50}},
+	}}
+
+	svc := newNarrativeServiceTestHarnessWithLLM(wmMemories, nil, charRepo, fakeSilentLLM{})
+	text, err := svc.BuildNarrativeContext(ctx, profileID, "hola, clima y tostadas")
+	if err != nil {
+		t.Fatalf("BuildNarrativeContext returned error: %v", err)
+	}
+	if !strings.Contains(text, "[ESTADO INTERNO]") {
+		t.Fatalf("expected ESTADO INTERNO section; got %q", text)
+	}
+	if !strings.Contains(strings.ToUpper(text), "IRA") {
+		t.Fatalf("expected IRA to be highlighted in ESTADO INTERNO; got %q", text)
+	}
+}
+
 // --- fakes ---
 
 type fakeLLM struct{}
@@ -177,9 +242,26 @@ func newNarrativeServiceTestHarness(wm []domain.NarrativeMemory, search []reposi
 		{ID: charID, CloneProfileID: uuid.Nil, Name: "TestUser", Relationship: domain.RelationshipVectors{Trust: 50, Intimacy: 50, Respect: 50}},
 	}}
 
+	return newNarrativeServiceTestHarnessWithLLM(wm, search, charRepo, fakeLLM{})
+}
+
+func newNarrativeServiceTestHarnessWithLLM(wm []domain.NarrativeMemory, search []repository.ScoredMemory, charRepo fakeCharacterRepo, llm llmClientWithEmbedding) *NarrativeService {
 	return &NarrativeService{
 		characterRepo: charRepo,
 		memoryRepo:    fakeMemoryRepo{wm: wm, search: search},
-		llmClient:     fakeLLM{},
+		llmClient:     llm,
 	}
+}
+
+type fakeSilentLLM struct{}
+
+func (f fakeSilentLLM) CreateEmbedding(ctx context.Context, text string) ([]float32, error) {
+	return []float32{1, 0}, nil
+}
+func (f fakeSilentLLM) Generate(ctx context.Context, prompt string) (string, error) {
+	// Si es el juez, devolvemos use=true; evocation queda vacia para simular silencio.
+	if strings.Contains(prompt, `"use"`) {
+		return `{"use": true, "reason": "ok"}`, nil
+	}
+	return "", nil
 }

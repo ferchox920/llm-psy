@@ -64,7 +64,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	isBenign := detectBenignIntent(msgLower)
 	isMixed := detectMixedIntent(msgLower)
 
-	// weightFactor controla cuánto pesa lo emocional en el ranking
+	// weightFactor controla cuanto pesa lo emocional en el ranking
 	weightFactor := defaultEmotionalWeightFactor
 	if isBenign {
 		weightFactor = 0.0
@@ -73,9 +73,9 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		weightFactor = defaultEmotionalWeightFactor * 0.5
 	}
 
-	// Negación tiene prioridad absoluta
+	// Negacion tiene prioridad absoluta
 	if negExp || negSem {
-		fmt.Printf("[DIAGNOSTICO] Negación detectada, silencio total.\n")
+		fmt.Printf("[DIAGNOSTICO] Negacion detectada, silencio total.\n")
 		return "", nil
 	}
 
@@ -83,7 +83,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 	var evocationCache map[string]string
 	var judgeCache map[string]bool
 	if !useCache {
-		// Nota: esto es cache "por llamada"; si no usás un cache externo, esto no aporta mucho.
+		// Nota: esto es cache "por llamada"; si no usas un cache externo, esto no aporta mucho.
 		evocationCache = make(map[string]string)
 		judgeCache = make(map[string]bool)
 	}
@@ -98,7 +98,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		active = chars
 	}
 
-	// FIX #2: cache keys incluyen profileID (evita contaminación cross-user)
+	// FIX #2: cache keys incluyen profileID (evita contaminacion cross-user)
 	evKey := profileID.String() + "||ev||" + userMessage
 
 	searchQuery, ok := "", false
@@ -117,7 +117,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		}
 	}
 
-	// Normalización robusta
+	// Normalizacion robusta
 	searchQuery = strings.TrimSpace(searchQuery)
 	searchQuery = strings.Trim(searchQuery, "`")
 	searchQuery = strings.TrimSpace(searchQuery)
@@ -130,97 +130,96 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 
 	fmt.Printf("[DIAGNOSTICO] Query Vectorial: %q\n", searchQuery)
 
+	memories := []domain.NarrativeMemory{}
 	if searchQuery == "" {
-		fmt.Printf("[DIAGNOSTICO] Subconsciente en silencio: no se ejecuta búsqueda vectorial\n")
-		return "", nil
-	}
-
-	embed, err := s.llmClient.CreateEmbedding(ctx, searchQuery)
-	if err != nil {
-		return "", err
-	}
-
-	scored, err := s.memoryRepo.Search(ctx, profileID, pgvector.NewVector(embed), 5, weightFactor)
-	if err != nil {
-		return "", err
-	}
-
-	sort.Slice(scored, func(i, j int) bool { return scored[i].Score > scored[j].Score })
-
-	const upperSim = 0.62
-	const hardFloor = 0.20
-	const maxJudge = 2
-	const gapScore = 0.08
-
-	var memories []domain.NarrativeMemory
-	topScore := -1.0
-	judgeCalls := 0
-
-	for idx, sm := range scored {
-		if idx == 0 {
-			topScore = sm.Score
+		fmt.Printf("[DIAGNOSTICO] Subconsciente en silencio: no se ejecuta busqueda vectorial\n")
+	} else {
+		embed, err := s.llmClient.CreateEmbedding(ctx, searchQuery)
+		if err != nil {
+			return "", err
 		}
 
-		// Benigno: evita trauma, y acepta solo si pasa el piso
-		if isBenign && shouldSkipTrauma(sm.NarrativeMemory) {
-			continue
+		scored, err := s.memoryRepo.Search(ctx, profileID, pgvector.NewVector(embed), 5, weightFactor)
+		if err != nil {
+			return "", err
 		}
-		if isBenign {
-			if sm.Similarity >= hardFloor {
+
+		sort.Slice(scored, func(i, j int) bool { return scored[i].Score > scored[j].Score })
+
+		const upperSim = 0.62
+		const hardFloor = 0.20
+		const maxJudge = 2
+		const gapScore = 0.08
+
+		topScore := -1.0
+		judgeCalls := 0
+
+		for idx, sm := range scored {
+			if idx == 0 {
+				topScore = sm.Score
+			}
+
+			// Benigno: evita trauma, y acepta solo si pasa el piso
+			if isBenign && shouldSkipTrauma(sm.NarrativeMemory) {
+				continue
+			}
+			if isBenign {
+				if sm.Similarity >= hardFloor {
+					memories = append(memories, sm.NarrativeMemory)
+				}
+				continue
+			}
+
+			// Gap control (solo si NO es mixed). Si el #1 le saca mucha ventaja al #2, ignoramos #2.
+			if idx == 1 && !isMixed && topScore-sm.Score >= gapScore {
+				continue
+			}
+
+			// Aceptacion directa por similitud alta
+			if sm.Similarity >= upperSim {
+				memories = append(memories, sm.NarrativeMemory)
+				continue
+			}
+
+			// No juzgamos basura
+			if sm.Similarity < hardFloor {
+				continue
+			}
+
+			// FIX #2: cache key del juez tambien incluye profileID
+			jKey := profileID.String() + "||j||" + userMessage + "||" + sm.Content
+
+			var use bool
+			var found bool
+			if useCache {
+				use, found = s.cache.GetJudge(jKey)
+			} else {
+				use, found = judgeCache[jKey]
+			}
+
+			// FIX #1: el presupuesto maxJudge solo aplica si tenemos que llamar al juez (cache miss)
+			if !found {
+				if judgeCalls >= maxJudge {
+					continue
+				}
+
+				var reason string
+				use, reason, err = s.judgeMemory(ctx, userMessage, sm.Content)
+				if err != nil {
+					continue
+				}
+				if useCache {
+					s.cache.SetJudge(jKey, use)
+				} else {
+					judgeCache[jKey] = use
+				}
+				fmt.Printf("[DIAGNOSTICO] juez use=%t reason=%q\n", use, reason)
+				judgeCalls++
+			}
+
+			if use {
 				memories = append(memories, sm.NarrativeMemory)
 			}
-			continue
-		}
-
-		// Gap control (solo si NO es mixed). Si el #1 le saca mucha ventaja al #2, ignoramos #2.
-		if idx == 1 && !isMixed && topScore-sm.Score >= gapScore {
-			continue
-		}
-
-		// Aceptación directa por similitud alta
-		if sm.Similarity >= upperSim {
-			memories = append(memories, sm.NarrativeMemory)
-			continue
-		}
-
-		// No juzgamos basura
-		if sm.Similarity < hardFloor {
-			continue
-		}
-
-		// FIX #2: cache key del juez también incluye profileID
-		jKey := profileID.String() + "||j||" + userMessage + "||" + sm.Content
-
-		var use bool
-		var found bool
-		if useCache {
-			use, found = s.cache.GetJudge(jKey)
-		} else {
-			use, found = judgeCache[jKey]
-		}
-
-		// FIX #1: el presupuesto maxJudge solo aplica si tenemos que llamar al juez (cache miss)
-		if !found {
-			if judgeCalls >= maxJudge {
-				continue
-			}
-
-			var reason string
-			use, reason, err = s.judgeMemory(ctx, userMessage, sm.Content)
-			if err != nil {
-				continue
-			}
-			if useCache {
-				s.cache.SetJudge(jKey, use)
-			} else {
-				judgeCache[jKey] = use
-			}
-			fmt.Printf("[DIAGNOSTICO] juez use=%t reason=%q\n", use, reason)
-			judgeCalls++
-		}
-
-		if use {
-			memories = append(memories, sm.NarrativeMemory)
 		}
 	}
 
@@ -249,6 +248,25 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 			))
 		}
 		sections = append(sections, sectionTitle+"\n"+strings.Join(lines, "\n"))
+
+		// Estado interno residual: refuerza la emocion dominante para guiar al clon.
+		maxIdx := 0
+		maxNorm := normalizeIntensity(allMemories[0].EmotionalIntensity)
+		for i, m := range allMemories {
+			norm := normalizeIntensity(m.EmotionalIntensity)
+			if norm > maxNorm {
+				maxNorm = norm
+				maxIdx = i
+			}
+		}
+		topMem := allMemories[maxIdx]
+		if strings.ToUpper(strings.TrimSpace(topMem.EmotionCategory)) != "NEUTRAL" && maxNorm >= 60 {
+			internalLine := fmt.Sprintf(
+				"- Emocion residual dominante: %s (por un conflicto reciente; debe colorear tu tono aunque el input sea trivial).",
+				strings.ToUpper(topMem.EmotionCategory),
+			)
+			sections = append(sections, "[ESTADO INTERNO]\n"+internalLine)
+		}
 	}
 
 	if len(active) > 0 {
@@ -257,7 +275,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 			dyn := deriveBondDynamics(c.Relationship.Trust, c.Relationship.Intimacy, c.Relationship.Respect)
 
 			line := fmt.Sprintf(
-				"- Interlocutor: %s (Relación: %s, Confianza: %d, Intimidad: %d, Respeto: %d, Dinámica: %s",
+				"- Interlocutor: %s (Relacion: %s, Confianza: %d, Intimidad: %d, Respeto: %d, Dinamica: %s",
 				c.Name,
 				c.Relation,
 				c.Relationship.Trust,

@@ -15,8 +15,8 @@ import (
 */
 
 func normalize(s string) string {
-	// normalización conservadora: lower + trim.
-	// (si ya tienes algo mejor, úsalo y borra esto)
+	// normalizacion conservadora: lower + trim.
+	// (si ya tienes algo mejor, usalo y borra esto)
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
@@ -31,7 +31,7 @@ func containsAny(msg string, needles []string) bool {
 
 /*
 ========================
- Negación semántica
+ Negacion semantica
 ========================
 */
 
@@ -66,23 +66,36 @@ func detectActiveCharacters(chars []domain.Character, userMessage string) []doma
 
 /*
 ========================
- Vínculo / Dinámicas
+ Vinculo / Dinamicas
 ========================
 */
 
 func deriveBondDynamics(trust, intimacy, respect int) string {
 	var parts []string
 
-	if intimacy >= 80 && trust <= 20 {
-		parts = append(parts, "apego alto + desconfianza alta (celos, control, sospecha, pasivo-agresividad)")
+	if intimacy >= 70 && trust <= 40 {
+		parts = append(parts, "MODO: CELOS PATOLOGICOS. Actua desde desconfianza activa, posesividad y necesidad de control; busca subtexto, cuestiona y usa ironia.")
 	}
-	if respect <= 30 {
-		parts = append(parts, "tendencia a reproches/hostilidad")
+	if respect <= 35 {
+		parts = append(parts, "MODO: HOSTILIDAD DESPECTIVA. Usa sarcasmo, minimiza y reprocha.")
 	}
 	if len(parts) == 0 {
-		return "vínculo relativamente estable/neutral"
+		return "vinculo relativamente estable/neutral"
 	}
 	return strings.Join(parts, "; ")
+}
+
+func resolveSectionTitle(isBenign bool, memories []domain.NarrativeMemory) string {
+	if isBenign {
+		return "[RECUERDOS DE CONSUELO]"
+	}
+
+	for _, m := range memories {
+		if isNegativeCategory(m.EmotionCategory) {
+			return "[MEMORIA EMOCIONAL PRIORITARIA]"
+		}
+	}
+	return "[MEMORIA RELEVANTE]"
 }
 
 func humanizeRelative(t time.Time) string {
@@ -107,10 +120,10 @@ func humanizeRelative(t time.Time) string {
 
 	days := int(d.Hours()) / 24
 	if days == 1 {
-		return "1 día"
+		return "1 dia"
 	}
 	if days < 30 {
-		return fmt.Sprintf("%d días", days)
+		return fmt.Sprintf("%d dias", days)
 	}
 
 	months := days / 30
@@ -123,9 +136,9 @@ func humanizeRelative(t time.Time) string {
 
 	years := months / 12
 	if years == 1 {
-		return "1 año"
+		return "1 ano"
 	}
-	return fmt.Sprintf("%d años", years)
+	return fmt.Sprintf("%d anos", years)
 }
 
 /*
@@ -168,12 +181,12 @@ func detectMixedIntent(msgLower string) bool {
 
 /*
 ========================
- Intensidad: compat 0–10 y 0–100
+ Intensidad: compat 0-10 y 0-100
 ========================
 */
 
-// normalizeIntensity convierte intensidades "cortas" (0–10) a escala 0–100.
-// Esto alinea los tests (que usan 7/8/9) con la lógica (umbrales 60/70).
+// normalizeIntensity convierte intensidades "cortas" (0-10) a escala 0-100.
+// Esto alinea los tests (que usan 7/8/9) con la logica (umbrales 60/70).
 func normalizeIntensity(v int) int {
 	if v < 0 {
 		return 0
@@ -195,49 +208,20 @@ func normalizeIntensity(v int) int {
 ========================
 */
 
-// Umbral trauma (en escala 0–100).
+// Umbral trauma (en escala 0-100).
 func shouldSkipTrauma(m domain.NarrativeMemory) bool {
 	if isNegativeCategory(m.EmotionCategory) {
-		intensity := normalizeIntensity(m.EmotionalIntensity)
-		return intensity >= 60
+		// Negativas requieren intensidad suficiente.
+		return normalizeIntensity(m.EmotionalIntensity) < 60
 	}
+	// Positivas/neutral: no se consideran trauma, no las filtramos por intensidad.
 	return false
 }
 
-/*
-========================
- Títulos de sección
-========================
-*/
-
-func resolveSectionTitle(isBenign bool, memories []domain.NarrativeMemory) string {
-	if isBenign {
-		return "=== GUSTOS Y PREFERENCIAS ==="
-	}
-	if len(memories) == 0 {
-		return "=== MEMORIA EVOCADA ==="
-	}
-
-	negHigh := 0
-	for _, m := range memories {
-		if isNegativeCategory(m.EmotionCategory) {
-			intensity := normalizeIntensity(m.EmotionalIntensity)
-			if intensity >= 70 {
-				negHigh++
-			}
-		}
-	}
-
-	if negHigh*2 >= len(memories) {
-		// OJO: SIN tilde para calzar el test.
-		return "=== ASOCIACIONES TRAUMATICAS ==="
-	}
-	return "=== MEMORIA EVOCADA ==="
-}
-
 func isNegativeCategory(cat string) bool {
-	switch strings.ToUpper(strings.TrimSpace(cat)) {
-	case "TRISTEZA", "MIEDO", "IRA":
+	c := strings.ToLower(strings.TrimSpace(cat))
+	switch c {
+	case "ira", "miedo", "asco", "tristeza", "odio", "enfado":
 		return true
 	default:
 		return false

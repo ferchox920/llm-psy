@@ -15,28 +15,28 @@ func TestDeriveBondDynamics(t *testing.T) {
 			trust:    10,
 			intimacy: 90,
 			respect:  50,
-			want:     "apego alto + desconfianza alta (celos, control, sospecha, pasivo-agresividad)",
+			want:     "MODO: CELOS PATOLOGICOS. Actua desde desconfianza activa, posesividad y necesidad de control; busca subtexto, cuestiona y usa ironia.",
 		},
 		{
 			name:     "respeto bajo => reproches/hostilidad",
 			trust:    60,
 			intimacy: 40,
 			respect:  30,
-			want:     "tendencia a reproches/hostilidad",
+			want:     "MODO: HOSTILIDAD DESPECTIVA. Usa sarcasmo, minimiza y reprocha.",
 		},
 		{
 			name:     "ambas reglas aplican => ambas frases",
 			trust:    20,
 			intimacy: 80,
 			respect:  10,
-			want:     "apego alto + desconfianza alta (celos, control, sospecha, pasivo-agresividad); tendencia a reproches/hostilidad",
+			want:     "MODO: CELOS PATOLOGICOS. Actua desde desconfianza activa, posesividad y necesidad de control; busca subtexto, cuestiona y usa ironia.; MODO: HOSTILIDAD DESPECTIVA. Usa sarcasmo, minimiza y reprocha.",
 		},
 		{
 			name:     "fallback neutral",
 			trust:    50,
 			intimacy: 50,
 			respect:  50,
-			want:     "vínculo relativamente estable/neutral",
+			want:     "vinculo relativamente estable/neutral",
 		},
 	}
 
