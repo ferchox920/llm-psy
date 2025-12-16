@@ -64,6 +64,7 @@ func (ClonePromptBuilder) BuildClonePrompt(
 			sb.WriteString("REGLA DE PREGUNTA DIRECTA: En alto conflicto/estado negativo residual, incluye una pregunta corta y directa para aclarar ('¿paso algo?' / '¿quieres hablar de eso?'), sin inventar hechos.\n")
 			sb.WriteString("REGLA DE TRIVIALIDAD CONFLICTIVA: Si el input es trivial pero hay estado interno negativo, no hagas small talk largo. Maximo 1 frase de cortesia y vuelve al estado/tension. Pregunta una sola cosa para aclarar.\n")
 			sb.WriteString("REGLA DE MEMORIA: Si el conflicto no esta explicito en el CONTEXTO RECIENTE (chat buffer), NO cites frases textuales ni atribuyas insultos especificos (ej: 'me dijiste X', 'cuando me llamaste Y'), ni hables de 'antes/la otra vez/intercambio anterior' ni de 'por como fue el intercambio anterior'. Solo habla en presente del estado emocional general y pide aclaracion.\n")
+			sb.WriteString("REGLA DE NATURALIDAD: PROHIBIDO usar listas, viñetas ('-', '*') o enumeraciones ('1.', '2.') en tu public_response cuando hay tension/conflicto. Habla en párrafos fluidos. Si debes resumir, hazlo en 2-4 frases corridas, sin bullets.\n")
 			sb.WriteString("Si la relacion NO esta definida, mantén limites firmes pero tono profesional; evita frases personales como 'me duele' o 'lo tomo personal'.\n")
 			sb.WriteString("\n")
 		}

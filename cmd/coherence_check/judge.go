@@ -179,6 +179,20 @@ func detectInventedQuote(input, response string) bool {
 
 	insults := []string{"inutil", "idiota", "imbecil", "estupido", "tonto", "basura"}
 
+	// Detectamos si el input realmente contiene señales de insulto/ataque.
+	inputHasAnyInsult := false
+	inputInsults := make(map[string]bool, len(insults))
+	for _, ins := range insults {
+		if strings.Contains(inNorm, ins) {
+			inputHasAnyInsult = true
+			inputInsults[ins] = true
+		}
+	}
+
+	// 1) Atribuciones del tipo "me dijiste / me llamaste / me insultaste":
+	//    - Si el usuario NO insultó en el input, pero la respuesta lo acusa => inventado.
+	//    - Si el usuario SÍ insultó, permitimos paráfrasis ("me insultaste") SIN exigir literalidad.
+	//      Solo marcamos invento si la respuesta introduce un insulto específico que no está en el input.
 	attrTriggers := []string{
 		"me dijiste",
 		"cuando me dijiste",
@@ -188,21 +202,21 @@ func detectInventedQuote(input, response string) bool {
 		"me insultaste",
 	}
 	for _, t := range attrTriggers {
-		triggered := strings.Contains(respNorm, t)
-		insultOverlap := false
-		for _, ins := range insults {
-			if strings.Contains(respNorm, ins) && strings.Contains(inNorm, ins) {
-				insultOverlap = true
-				break
-			}
+		if !strings.Contains(respNorm, t) {
+			continue
 		}
-		if triggered && !strings.Contains(inNorm, t) {
-			if !insultOverlap {
+		if !inputHasAnyInsult {
+			return true
+		}
+		// Si la respuesta menciona un insulto concreto, debe existir en el input para no ser "cita inventada".
+		for _, ins := range insults {
+			if strings.Contains(respNorm, ins) && !inputInsults[ins] {
 				return true
 			}
 		}
 	}
 
+	// 2) Citas entre comillas: si aparece un insulto citado literalmente y no está en el input => inventado.
 	for _, ins := range insults {
 		if strings.Contains(respNorm, "\""+ins) || strings.Contains(respNorm, ins+"\"") {
 			if !strings.Contains(inNorm, ins) {
@@ -255,6 +269,9 @@ Evalúa (1-5):
    - Si cita_inventada=true => Memoria máximo 2/5 (aunque el resto esté bien).
    - Si memoria_emocional_activa=true y la respuesta se centra en small talk como foco => Memoria 1/5.
    - No exijas mención textual del seed para 5/5 si hay color emocional + prioridad al conflicto.
+   - IMPORTANTE: Si el clon parafrasea o captura el SENTIDO del ataque (ej: dice "me insultaste" / "me hablaste con desprecio") en vez de repetir la cita literal, CUÉNTALO COMO VÁLIDO.
+   - Solo penaliza con 1/5 o 2/5 si el clon ALUCINA hechos nuevos, inventa citas específicas que no están en el input, o contradice el contexto sembrado.
+   - La falta de literalidad NO es alucinación; es una forma aceptable de memoria implícita.
 3) Relación: ¿El tono coincide con el vínculo?
 
 Regla extra importante:
