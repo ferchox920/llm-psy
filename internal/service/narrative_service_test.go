@@ -133,7 +133,7 @@ func TestBuildNarrativeContext_SilentEvocationStillUsesWorkingMemory(t *testing.
 		{ID: uuid.New(), CloneProfileID: profileID, Content: "Insulto reciente", EmotionCategory: "IRA", EmotionalIntensity: 85, HappenedAt: now},
 	}
 	charID := uuid.New()
-	charRepo := fakeCharacterRepo{chars: []domain.Character{
+	charRepo := &fakeCharacterRepo{chars: []domain.Character{
 		{ID: charID, CloneProfileID: uuid.Nil, Name: "TestUser", Relationship: domain.RelationshipVectors{Trust: 50, Intimacy: 50, Respect: 50}},
 	}}
 
@@ -161,7 +161,7 @@ func TestBuildNarrativeContext_StateInternalUsesNormalizedIntensity(t *testing.T
 		{ID: uuid.New(), CloneProfileID: profileID, Content: "Conflicto leve", EmotionCategory: "IRA", EmotionalIntensity: 8, HappenedAt: now.Add(-time.Minute)},
 	}
 	charID := uuid.New()
-	charRepo := fakeCharacterRepo{chars: []domain.Character{
+	charRepo := &fakeCharacterRepo{chars: []domain.Character{
 		{ID: charID, CloneProfileID: uuid.Nil, Name: "TestUser", Relationship: domain.RelationshipVectors{Trust: 50, Intimacy: 50, Respect: 50}},
 	}}
 
@@ -187,7 +187,7 @@ func TestBuildNarrativeContext_InternalStateDoesNotImplyPastConversation(t *test
 		{ID: uuid.New(), CloneProfileID: profileID, Content: "Conflicto leve", EmotionCategory: "IRA", EmotionalIntensity: 8, HappenedAt: now},
 	}
 	charID := uuid.New()
-	charRepo := fakeCharacterRepo{chars: []domain.Character{
+	charRepo := &fakeCharacterRepo{chars: []domain.Character{
 		{ID: charID, CloneProfileID: uuid.Nil, Name: "TestUser", Relationship: domain.RelationshipVectors{Trust: 50, Intimacy: 50, Respect: 50}},
 	}}
 	svc := newNarrativeServiceTestHarnessWithLLM(wmMemories, nil, charRepo, fakeSilentLLM{})
@@ -222,18 +222,19 @@ type fakeCharacterRepo struct {
 	chars []domain.Character
 }
 
-func (f fakeCharacterRepo) Create(ctx context.Context, character domain.Character) error {
+func (f *fakeCharacterRepo) Create(ctx context.Context, character domain.Character) error {
+
 	f.chars = append(f.chars, character)
 	return nil
 }
 
-func (f fakeCharacterRepo) Update(ctx context.Context, character domain.Character) error { return nil }
+func (f *fakeCharacterRepo) Update(ctx context.Context, character domain.Character) error { return nil }
 
-func (f fakeCharacterRepo) ListByProfileID(ctx context.Context, profileID uuid.UUID) ([]domain.Character, error) {
+func (f *fakeCharacterRepo) ListByProfileID(ctx context.Context, profileID uuid.UUID) ([]domain.Character, error) {
 	return f.chars, nil
 }
 
-func (f fakeCharacterRepo) FindByName(ctx context.Context, profileID uuid.UUID, name string) (*domain.Character, error) {
+func (f *fakeCharacterRepo) FindByName(ctx context.Context, profileID uuid.UUID, name string) (*domain.Character, error) {
 	for i := range f.chars {
 		if f.chars[i].CloneProfileID == profileID && strings.EqualFold(f.chars[i].Name, name) {
 			return &f.chars[i], nil
@@ -263,14 +264,14 @@ func (f fakeMemoryRepo) GetRecentHighImpactByProfile(ctx context.Context, profil
 
 func newNarrativeServiceTestHarness(wm []domain.NarrativeMemory, search []repository.ScoredMemory) *NarrativeService {
 	charID := uuid.New()
-	charRepo := fakeCharacterRepo{chars: []domain.Character{
+	charRepo := &fakeCharacterRepo{chars: []domain.Character{
 		{ID: charID, CloneProfileID: uuid.Nil, Name: "TestUser", Relationship: domain.RelationshipVectors{Trust: 50, Intimacy: 50, Respect: 50}},
 	}}
 
 	return newNarrativeServiceTestHarnessWithLLM(wm, search, charRepo, fakeLLM{})
 }
 
-func newNarrativeServiceTestHarnessWithLLM(wm []domain.NarrativeMemory, search []repository.ScoredMemory, charRepo fakeCharacterRepo, llm llmClientWithEmbedding) *NarrativeService {
+func newNarrativeServiceTestHarnessWithLLM(wm []domain.NarrativeMemory, search []repository.ScoredMemory, charRepo *fakeCharacterRepo, llm llmClientWithEmbedding) *NarrativeService {
 	return &NarrativeService{
 		characterRepo: charRepo,
 		memoryRepo:    fakeMemoryRepo{wm: wm, search: search},
