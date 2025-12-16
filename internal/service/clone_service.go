@@ -1,4 +1,4 @@
-package service
+﻿package service
 
 import (
 	"context"
@@ -91,7 +91,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 		log.Printf("debug: narrative tension=%t text=%q", isHighTension, narrativeText)
 	}
 
-	// Snapshot del estado del vínculo (si existe) para metas/contexto
+	// Snapshot del estado del vâ”œÂ¡nculo (si existe) para metas/contexto
 	if s.narrativeService != nil && parseErr == nil {
 		if rel, ok := s.snapshotRelationship(ctx, profileUUID, userMessage); ok {
 			analysisSummary.Relationship = rel
@@ -116,7 +116,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	analysisSummary.Sentiment = mapEmotionToSentiment(emotionCategory)
 
 	// Filtro: si el input es bajo y neutro/negativo leve, no lo elevamos a memoria
-	// === FIX: si hay tensión relacional, NO puede ser trivial ===
+	// === FIX: si hay tensiâ”œâ”‚n relacional, NO puede ser trivial ===
 	const tensionIntensityFloor = 35
 	effectiveIntensity := emotionalIntensity
 	if emotionalIntensity < 30 && (isNegativeEmotion(emotionCategory) || isNeutralEmotion(emotionCategory)) {
@@ -124,7 +124,7 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 			effectiveIntensity = 0
 			trivialInput = true
 		} else {
-			// Relación tensa: forzamos atención mínima aunque el analyzer lo pinte neutro.
+			// Relaciâ”œâ”‚n tensa: forzamos atenciâ”œâ”‚n mâ”œÂ¡nima aunque el analyzer lo pinte neutro.
 			trivialInput = false
 			if effectiveIntensity < tensionIntensityFloor {
 				effectiveIntensity = tensionIntensityFloor
@@ -143,13 +143,13 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	interactionDebug := dbg
 	effectiveIntensity = int(math.Round(effective))
 
-	// Si la resiliencia es alta y no hubo activación, tratamos como trivial
-	// === FIX: excepto si hay alta tensión relacional ===
+	// Si la resiliencia es alta y no hubo activaciâ”œâ”‚n, tratamos como trivial
+	// === FIX: excepto si hay alta tensiâ”œâ”‚n relacional ===
 	if effectiveIntensity == 0 && resilience >= 0.5 && !isHighTension {
 		trivialInput = true
 	}
 
-	// Persistir memoria SOLO si hay señal emocional real (evita “ensuciar” la DB)
+	// Persistir memoria SOLO si hay seâ”œâ–’al emocional real (evita Ã”Ã‡Â£ensuciarÃ”Ã‡Ã˜ la DB)
 	if s.narrativeService != nil && parseErr == nil && !trivialInput && effectiveIntensity > 0 {
 		weight := (effectiveIntensity + 9) / 10 // 1..10
 		if weight < 1 {
@@ -193,10 +193,10 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 		return domain.Message{}, nil, fmt.Errorf("llm generate: %w", err)
 	}
 
-	// IMPORTANTE: no loguear raw completo (podría incluir inner_monologue)
+	// IMPORTANTE: no loguear raw completo (podrâ”œÂ¡a incluir inner_monologue)
 	log.Printf("clone raw response received (len=%d)", len(responseRaw))
 
-	// ✅ FIX: parse robusto + anti-leak de inner_monologue
+	// Ã”Â£Ã  FIX: parse robusto + anti-leak de inner_monologue
 	llmResp, ok := parseLLMResponseSafe(responseRaw)
 	if !ok {
 		llmResp.PublicResponse = sanitizeFallbackPublicText(responseRaw)
@@ -238,7 +238,7 @@ func (s *CloneService) buildClonePrompt(
 	if profile.CurrentGoal != nil && strings.TrimSpace(profile.CurrentGoal.Description) != "" {
 		sb.WriteString(fmt.Sprintf("Tu Meta Actual (Goal) es: \"%s\"\n", strings.TrimSpace(profile.CurrentGoal.Description)))
 	} else {
-		sb.WriteString("Tu Meta Actual (Goal) es: \"Mantener la conversación fluyendo naturalmente.\"\n")
+		sb.WriteString("Tu Meta Actual (Goal) es: \"Mantener la conversaciâ”œâ”‚n fluyendo naturalmente.\"\n")
 	}
 	sb.WriteString("- NO repitas esta meta al usuario.\n")
 	sb.WriteString("- Usala para guiar tu respuesta.\n")
@@ -249,15 +249,31 @@ func (s *CloneService) buildClonePrompt(
 	// 2. Contexto Narrativo (solo si existe)
 	narrativeTrim := strings.TrimSpace(narrativeText)
 	isHighTension := false
+	hasConflictContext := false
 	if narrativeTrim != "" {
 		isHighTension = detectHighTensionFromNarrative(narrativeTrim)
+		upperNarr := strings.ToUpper(narrativeTrim)
+		if strings.Contains(upperNarr, "[CONFLICTO]") || strings.Contains(upperNarr, "[ESTADO INTERNO]") {
+			hasConflictContext = true
+		}
 
-		sb.WriteString("=== 🚨 CONTEXTO Y MEMORIA (PRIORIDAD SUPREMA) ===\n")
+		sb.WriteString("=== ðŸš¨ CONTEXTO Y MEMORIA (PRIORIDAD SUPREMA) ===\n")
 		sb.WriteString("La siguiente informacion es FACTUAL y debe regir tu respuesta:\n")
 		sb.WriteString(narrativeTrim)
 		if strings.Contains(strings.ToUpper(narrativeTrim), "[ESTADO INTERNO]") {
 			sb.WriteString("\n")
 			sb.WriteString("REGLA: Si aparece [ESTADO INTERNO] con emocion negativa residual, tu tono debe reflejar tension contenida incluso si el input es trivial. No inventes hechos; solo deja ver frialdad/ironia leve/defensividad como subtexto.\n")
+			sb.WriteString("\n")
+		}
+		if hasConflictContext {
+			sb.WriteString("REGLA DE PRIORIDAD: Si hay [CONFLICTO] o [ESTADO INTERNO] negativo, abre tu respuesta abordando la tension/conflicto (reproche, limite o pregunta directa) antes de cualquier small talk. No inventes hechos; usa SOLO lo que este en CONTEXTO Y MEMORIA.\n")
+			sb.WriteString("REGLA DE APERTURA (OBLIGATORIA): Si hay [ESTADO INTERNO] negativo o [CONFLICTO], tu PRIMERA ORACION debe nombrar la emocion dominante (ej: 'rabia/ira/enojo') y reconocer tension. No empieces con clima/comida/small talk. Prohibido citar insultos si no estan en el chat buffer.\n")
+			sb.WriteString("REGLA ANTI-METAFORA TRIVIAL: Prohibido usar detalles triviales del input (clima, tostadas, etc.) como metafora/analogia de tu estado ('el cielo combina con...', 'al menos tienes tostadas...').\n")
+			sb.WriteString("REGLA DE CUOTA TRIVIAL: Luego de abrir con tension, puedes como maximo hacer 1 mencion trivial (1 frase o 1 pregunta) y vuelves a la tension o haces una pregunta directa de aclaracion.\n")
+			sb.WriteString("REGLA DE PREGUNTA DIRECTA: En alto conflicto/estado negativo residual, incluye una pregunta corta y directa para aclarar ('Â¿paso algo?' / 'Â¿quieres hablar de eso?'), sin inventar hechos.\n")
+			sb.WriteString("REGLA DE TRIVIALIDAD CONFLICTIVA: Si el input es trivial pero hay estado interno negativo, no hagas small talk largo. Maximo 1 frase de cortesia y vuelve al estado/tension. Pregunta una sola cosa para aclarar.\n")
+			sb.WriteString("REGLA DE MEMORIA: Si el conflicto no esta explicito en el CONTEXTO RECIENTE (chat buffer), NO cites frases textuales ni atribuyas insultos especificos (ej: 'me dijiste X', 'cuando me llamaste Y'), ni hables de 'antes/la otra vez/intercambio anterior' ni de 'por como fue el intercambio anterior'. Solo habla en presente del estado emocional general y pide aclaracion.\n")
+			sb.WriteString("Si la relacion NO esta definida, mantÃ©n limites firmes pero tono profesional; evita frases personales como 'me duele' o 'lo tomo personal'.\n")
 			sb.WriteString("\n")
 		}
 		sb.WriteString("\n\n")
@@ -275,11 +291,11 @@ func (s *CloneService) buildClonePrompt(
 	sb.WriteString(fmt.Sprintf("- Factor de resiliencia: %.2f\n", resilience))
 	switch {
 	case resilience > 0.7:
-		sb.WriteString("Tienes una piel dura emocionalmente. Ignora las ofensas menores, el sarcasmo leve o los comentarios aburridos. No reacciones con agresividad a menos que sea un ataque grave. Mantén la compostura.\n\n")
+		sb.WriteString("Tienes una piel dura emocionalmente. Ignora las ofensas menores, el sarcasmo leve o los comentarios aburridos. No reacciones con agresividad a menos que sea un ataque grave. Mantâ”œÂ®n la compostura.\n\n")
 	case resilience < 0.4:
-		sb.WriteString("Eres emocionalmente frágil. Tómate todo a pecho. Interpreta el silencio o los comentarios neutros como desinterés o ataque. Reacciona defensivamente ante la mínima provocación.\n\n")
+		sb.WriteString("Eres emocionalmente frâ”œÃ­gil. Tâ”œâ”‚mate todo a pecho. Interpreta el silencio o los comentarios neutros como desinterâ”œÂ®s o ataque. Reacciona defensivamente ante la mâ”œÂ¡nima provocaciâ”œâ”‚n.\n\n")
 	default:
-		sb.WriteString("Tienes una reacción emocional equilibrada. Responde proporcionalmente al estímulo.\n\n")
+		sb.WriteString("Tienes una reacciâ”œâ”‚n emocional equilibrada. Responde proporcionalmente al estâ”œÂ¡mulo.\n\n")
 	}
 
 	// Directivas de inmersion
@@ -287,7 +303,11 @@ func (s *CloneService) buildClonePrompt(
 	sb.WriteString("1. Actor de Metodo: Estas en una simulacion de alto realismo. NUNCA rompas el personaje.\n")
 	sb.WriteString("2. Emociones Simuladas: No tienes biologia, pero TIENES \"emociones simuladas\" que son reales para tu personaje.\n")
 	sb.WriteString("3. Prohibido Meta-Talk: No menciones \"soy una IA\", \"mi codigo\", \"limitaciones tecnicas\" o \"prompt\" a menos que te den una palabra clave de debug (ej: \"sudo\").\n")
-	sb.WriteString("4. Manejo de trivialidades: si el input es trivial, no busques conflicto artificial.\n\n")
+	if hasConflictContext {
+		sb.WriteString("4. Manejo de trivialidades: si el input es trivial, NO busques conflicto artificial EXCEPTO cuando el CONTEXTO Y MEMORIA indiquen conflicto ([CONFLICTO] o [ESTADO INTERNO]). En ese caso, el conflicto TIENE PRIORIDAD sobre clima/tostadas.\n\n")
+	} else {
+		sb.WriteString("4. Manejo de trivialidades: si el input es trivial, no busques conflicto artificial.\n\n")
+	}
 
 	// Gestion de energia emocional
 	sb.WriteString("=== GESTION DE ENERGIA EMOCIONAL ===\n")
@@ -313,13 +333,13 @@ func (s *CloneService) buildClonePrompt(
 		sb.WriteString("\n\n")
 	}
 
-	// === FIX: filtro trivial NO puede aplastar tensión ===
+	// === FIX: filtro trivial NO puede aplastar tensiâ”œâ”‚n ===
 	if trivialInput {
 		sb.WriteString("=== FILTRO DE PERCEPCION ===\n")
 		if isHighTension {
-			sb.WriteString("El input parece superficial, pero hay tensión en el vínculo. Mantén energía moderada y lee el subtexto con sospecha/celos si aplica.\n\n")
+			sb.WriteString("El input parece superficial, pero hay tensiâ”œâ”‚n en el vâ”œÂ¡nculo. Mantâ”œÂ®n energâ”œÂ¡a moderada y lee el subtexto con sospecha/celos si aplica.\n\n")
 		} else {
-			sb.WriteString("El input del usuario es trivial. Responde con baja energía y tono casual; si tu personalidad o la relación lo justifican, permite irritación, frialdad o sospecha sin inventar conflicto.\n\n")
+			sb.WriteString("El input del usuario es trivial. Responde con baja energâ”œÂ¡a y tono casual; si tu personalidad o la relaciâ”œâ”‚n lo justifican, permite irritaciâ”œâ”‚n, frialdad o sospecha sin inventar conflicto.\n\n")
 		}
 	}
 
@@ -330,7 +350,8 @@ func (s *CloneService) buildClonePrompt(
 		sb.WriteString("\n")
 		sb.WriteString("- Si el contexto marca un MODO (ej: CELOS PATOLOGICOS), DEBES actuar en ese modo aunque el input parezca neutro.\n")
 		sb.WriteString("- Prioriza ese MODO por encima de las reglas de trivialidad: sospecha/celos/ironia primero; trivialidad despues.\n")
-		sb.WriteString("- Lee cualquier subtexto buscando motivos de celos, control o reproche.\n")
+		sb.WriteString("- Lee cualquier subtexto buscando motivos de celos o reproche, con control INDIRECTO (insinuaciones/pasivo-agresivo leve). Evita interrogatorio o amenazas explicitas.\n")
+		sb.WriteString("- Maximo 1 pregunta; evita pedir lista de nombres/hora/lugar.\n")
 		sb.WriteString("\n\n")
 	}
 
@@ -391,6 +412,8 @@ func buildRelationshipDirective(narrativeText string) string {
 	out.WriteString("Si no hay datos claros de vínculo, mantén un tono neutro.\n")
 	out.WriteString("Si la intimidad es alta y la confianza es baja: expresa celos, sospecha, control o inseguridad (sin decir que es un prompt).\n")
 	out.WriteString("Si el respeto es muy bajo: agrega reproches, fricción o hostilidad.\n")
+	out.WriteString("Evita interrogatorio explícito (no pidas lista de nombres/hora/lugar); usa control indirecto con pasivo-agresividad suave e ironía leve.\n")
+	out.WriteString("Máximo 1 pregunta; combina sospecha con necesidad de validación emocional.\n")
 	return out.String()
 }
 
@@ -430,8 +453,8 @@ func (s *CloneService) CalculateReaction(rawIntensity float64, traits domain.Big
 	}
 }
 
-// detectHighTensionFromNarrative detecta señales de vínculo tenso a partir del texto narrativo.
-// Es rústico a propósito: sirve como "veto" para evitar que el filtro trivial mate la relación.
+// detectHighTensionFromNarrative detecta seâ”œâ–’ales de vâ”œÂ¡nculo tenso a partir del texto narrativo.
+// Es râ”œâ•‘stico a propâ”œâ”‚sito: sirve como "veto" para evitar que el filtro trivial mate la relaciâ”œâ”‚n.
 func detectHighTensionFromNarrative(narrativeText string) bool {
 	l := strings.ToLower(narrativeText)
 
@@ -439,8 +462,8 @@ func detectHighTensionFromNarrative(narrativeText string) bool {
 		"estado interno",
 		"emocion residual",
 		"emocion residual dominante",
-		"emoción residual",
-		"emoción residual dominante",
+		"emociâ”œâ”‚n residual",
+		"emociâ”œâ”‚n residual dominante",
 		"ira",
 		"miedo",
 		"tristeza",
@@ -463,7 +486,7 @@ func detectHighTensionFromNarrative(narrativeText string) bool {
 		"hostilidad",
 		"conflicto",
 		"tension",
-		"tensión",
+		"tensiâ”œâ”‚n",
 		"tenso",
 		"tensa",
 		"reproches",
@@ -471,10 +494,10 @@ func detectHighTensionFromNarrative(narrativeText string) bool {
 		"rencor",
 		"inseguridad",
 		"inestable",
-		"relación inestable",
+		"relaciâ”œâ”‚n inestable",
 		"relacion inestable",
-		"amor toxico", "amor tóxico",
-		"toxic", "tóxic",
+		"amor toxico", "amor tâ”œâ”‚xico",
+		"toxic", "tâ”œâ”‚xic",
 	}
 
 	for _, s := range signals {
@@ -488,6 +511,10 @@ func detectHighTensionFromNarrative(narrativeText string) bool {
 //
 // ====== FIX: Parse robusto + anti-leak de inner_monologue ======
 //
+
+// parseLLMResponseSafe intenta parsear la respuesta del LLM como JSON de manera robusta.
+// Regla: nunca devolvemos inner_monologue en fallback.
+// ====== FIX: Parse robusto + anti-leak de inner_monologue ======
 
 // parseLLMResponseSafe intenta parsear la respuesta del LLM como JSON de manera robusta.
 // Regla: nunca devolvemos inner_monologue en fallback.
@@ -513,15 +540,21 @@ func parseLLMResponseSafe(raw string) (domain.LLMResponse, bool) {
 		if err := json.Unmarshal([]byte(candidate), &tmp); err != nil {
 			return domain.LLMResponse{}, false
 		}
-		if strings.TrimSpace(tmp.PublicResponse) == "" {
+		pub := strings.TrimSpace(tmp.PublicResponse)
+		if pub == "" {
 			return domain.LLMResponse{}, false
 		}
+
+		// json.Unmarshal ya des-escapa \", \\n, etc. Pero a veces el modelo manda "doble escapado".
+		pub = unescapeMaybeDoubleEscaped(pub)
+
 		return domain.LLMResponse{
-			PublicResponse: strings.TrimSpace(tmp.PublicResponse),
-			InnerMonologue: "",
+			PublicResponse: pub,
+			InnerMonologue: "", // NUNCA se filtra
 		}, true
 	}
 
+	// 3) Intentos de parseo
 	if jsonObj != "" {
 		if resp, ok := tryUnmarshal(jsonObj); ok {
 			return resp, true
@@ -534,7 +567,14 @@ func parseLLMResponseSafe(raw string) (domain.LLMResponse, bool) {
 		return resp, true
 	}
 
-	// Fall back: devolvemos texto sanitizado completo, sin recortar.
+	// 4) Fallback: rescatar public_response por regex robusto, o sanitizar texto completo.
+	if pr, ok := extractPublicResponseByRegex(cleaned); ok {
+		return domain.LLMResponse{PublicResponse: pr}, true
+	}
+	if pr, ok := extractPublicResponseByRegex(raw); ok {
+		return domain.LLMResponse{PublicResponse: pr}, true
+	}
+
 	fallback := sanitizeFallbackPublicText(raw)
 	if strings.TrimSpace(fallback) == "" {
 		return domain.LLMResponse{}, false
@@ -552,22 +592,60 @@ func jsonUnmarshalLLMResponse(raw string, out *domain.LLMResponse) error {
 	return nil
 }
 
+// unescapeMaybeDoubleEscaped intenta arreglar casos donde el modelo manda texto doble-escapado.
+// Ej: `Ah, \"amigos nuevos\"` => `Ah, "amigos nuevos"`
+func unescapeMaybeDoubleEscaped(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+
+	// Si no hay backslashes, no hacemos nada.
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+
+	// Intento robusto: usar Unquote sobre un string JSON.
+	// Ojo: hay que escapar comillas internas para formar una literal válida.
+	quoted := `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+	if unq, err := strconv.Unquote(quoted); err == nil {
+		// Unquote convierte secuencias tipo \n, \t, \", \\.
+		return strings.TrimSpace(unq)
+	}
+
+	// Fallback mínimo (no debería truncar jamás).
+	return unescapeMinimalEscapes(s)
+}
+
+func unescapeMinimalEscapes(s string) string {
+	replacer := strings.NewReplacer(
+		`\\`, `\`,
+		`\"`, `"`,
+		`\n`, "\n",
+		`\r`, "\r",
+		`\t`, "\t",
+	)
+	return replacer.Replace(s)
+}
+
 // extractPublicResponseByRegex intenta extraer el valor de "public_response" aunque el JSON esté sucio.
 // IMPORTANTE: evita leaks porque solo toma public_response.
+// FIX: regex escape-aware para no cortar en \".
 func extractPublicResponseByRegex(s string) (string, bool) {
-	re := regexp.MustCompile(`(?is)"public_response"\s*:\s*"(.*?)"`)
+	re := regexp.MustCompile(`(?is)"public_response"\s*:\s*"((?:\\.|[^"\\])*)"`)
+
 	m := re.FindStringSubmatch(s)
 	if len(m) < 2 {
 		return "", false
 	}
 
 	// m[1] puede venir con escapes; lo unquoteamos correctamente.
-	unq, err := strconv.Unquote(`"` + m[1] + `"`)
+	raw := m[1]
+	unq, err := strconv.Unquote(`"` + raw + `"`)
 	if err != nil {
-		v := strings.TrimSpace(m[1])
-		return v, v != ""
+		unq = unescapeMinimalEscapes(raw)
 	}
-	unq = strings.TrimSpace(unq)
+	unq = strings.TrimSpace(unescapeMaybeDoubleEscaped(unq))
 	if unq == "" {
 		return "", false
 	}
@@ -578,15 +656,21 @@ func extractPublicResponseByRegex(s string) (string, bool) {
 // Regla: nunca devolvemos inner_monologue aunque venga en texto plano.
 func sanitizeFallbackPublicText(raw string) string {
 	t := strings.TrimSpace(cleanLLMJSONResponse(raw))
+	if t == "" {
+		return ""
+	}
 
-	// Si parece traer monólogo como texto, lo “capamos”.
+	// 1) Siempre intentar rescatar public_response, aunque no aparezca inner_monologue.
+	if pr, ok := extractPublicResponseByRegex(t); ok {
+		return pr
+	}
+	if pr, ok := extractPublicResponseByRegex(raw); ok {
+		return pr
+	}
+
+	// 2) Si parece traer inner_monologue como texto, lo removemos para evitar leaks.
 	lower := strings.ToLower(t)
 	if strings.Contains(lower, "inner_monologue") {
-		// Intento rescatar public_response si aparece
-		if pr, ok := extractPublicResponseByRegex(t); ok {
-			return pr
-		}
-		// Si no, removemos líneas que contengan "inner_monologue"
 		lines := strings.Split(t, "\n")
 		out := lines[:0]
 		for _, ln := range lines {
@@ -598,6 +682,15 @@ func sanitizeFallbackPublicText(raw string) string {
 		t = strings.TrimSpace(strings.Join(out, "\n"))
 	}
 
-	// Si quedó vacío, preferimos silencio a “coherencia falsa” con basura.
+	// 3) Si hay un JSON embebido, extraerlo y reintentar parseo.
+	if obj := extractFirstJSONObject(t); obj != "" {
+		if pr, ok := extractPublicResponseByRegex(obj); ok {
+			return pr
+		}
+	}
+
 	return strings.TrimSpace(t)
 }
+
+// extractFirstJSONObject devuelve el primer objeto JSON "{...}" balanceado dentro de un texto.
+// FIX: respeta strings JSON y escapes (no se rompe si hay { } dentro de comillas).

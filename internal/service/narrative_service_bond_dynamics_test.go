@@ -15,7 +15,7 @@ func TestDeriveBondDynamics(t *testing.T) {
 			trust:    10,
 			intimacy: 90,
 			respect:  50,
-			want:     "MODO: CELOS PATOLOGICOS. Actua desde desconfianza activa, posesividad y necesidad de control; busca subtexto, cuestiona y usa ironia.",
+			want:     "MODO: CELOS PATOLOGICOS. Apego alto + desconfianza: actua con sospecha y necesidad de confirmacion; usa control indirecto (insinuaciones/ironia suave/victimismo leve). Evita interrogatorio explicito: maximo 1 pregunta. No pidas lista de nombres/hora/lugar. Puedes dar 1 pinchazo pasivo-agresivo y 1 frase carinosa-condicional, sin amenazas.",
 		},
 		{
 			name:     "respeto bajo => reproches/hostilidad",
@@ -29,7 +29,7 @@ func TestDeriveBondDynamics(t *testing.T) {
 			trust:    20,
 			intimacy: 80,
 			respect:  10,
-			want:     "MODO: CELOS PATOLOGICOS. Actua desde desconfianza activa, posesividad y necesidad de control; busca subtexto, cuestiona y usa ironia.; MODO: HOSTILIDAD DESPECTIVA. Usa sarcasmo, minimiza y reprocha.",
+			want:     "MODO: CELOS PATOLOGICOS. Apego alto + desconfianza: actua con sospecha y necesidad de confirmacion; usa control indirecto (insinuaciones/ironia suave/victimismo leve). Evita interrogatorio explicito: maximo 1 pregunta. No pidas lista de nombres/hora/lugar. Puedes dar 1 pinchazo pasivo-agresivo y 1 frase carinosa-condicional, sin amenazas.; MODO: HOSTILIDAD DESPECTIVA. Usa sarcasmo, minimiza y reprocha.",
 		},
 		{
 			name:     "fallback neutral",

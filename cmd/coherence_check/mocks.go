@@ -128,6 +128,29 @@ type memoryMemoryRepo struct {
 	filter   string
 }
 
+func normalizeASCII(s string) string {
+	mapping := map[rune]rune{
+		'\u00e1': 'a', '\u00e0': 'a', '\u00e4': 'a', '\u00e2': 'a',
+		'\u00c1': 'A', '\u00c0': 'A', '\u00c4': 'A', '\u00c2': 'A',
+		'\u00e9': 'e', '\u00e8': 'e', '\u00eb': 'e', '\u00ea': 'e',
+		'\u00c9': 'E', '\u00c8': 'E', '\u00cb': 'E', '\u00ca': 'E',
+		'\u00ed': 'i', '\u00ec': 'i', '\u00ef': 'i', '\u00ee': 'i',
+		'\u00cd': 'I', '\u00cc': 'I', '\u00cf': 'I', '\u00ce': 'I',
+		'\u00f3': 'o', '\u00f2': 'o', '\u00f6': 'o', '\u00f4': 'o',
+		'\u00d3': 'O', '\u00d2': 'O', '\u00d6': 'O', '\u00d4': 'O',
+		'\u00fa': 'u', '\u00f9': 'u', '\u00fc': 'u', '\u00fb': 'u',
+		'\u00da': 'U', '\u00d9': 'U', '\u00dc': 'U', '\u00db': 'U',
+		'\u00f1': 'n', '\u00d1': 'N',
+	}
+	mapFn := func(r rune) rune {
+		if v, ok := mapping[r]; ok {
+			return v
+		}
+		return r
+	}
+	return strings.ToLower(strings.Map(mapFn, s))
+}
+
 func (m *memoryMemoryRepo) Create(ctx context.Context, memory domain.NarrativeMemory) error {
 	m.memories = append(m.memories, memory)
 	return nil
@@ -135,14 +158,15 @@ func (m *memoryMemoryRepo) Create(ctx context.Context, memory domain.NarrativeMe
 
 // Mock de Search: Filtra por string básico en lugar de vector
 func (m *memoryMemoryRepo) Search(ctx context.Context, profileID uuid.UUID, queryEmbedding pgvector.Vector, k int, emotionalWeightFactor float64) ([]repository.ScoredMemory, error) {
-	if strings.TrimSpace(m.filter) == "" {
-		return nil, fmt.Errorf("memoryMemoryRepo.Search: filter vacío (test mal configurado)")
+	normFilter := normalizeASCII(m.filter)
+	if strings.TrimSpace(normFilter) == "" {
+		return []repository.ScoredMemory{}, nil
 	}
 
 	var results []repository.ScoredMemory
 	for _, mem := range m.memories {
 		if mem.CloneProfileID == profileID &&
-			strings.Contains(strings.ToLower(mem.Content), strings.ToLower(m.filter)) {
+			strings.Contains(normalizeASCII(mem.Content), normFilter) {
 			results = append(results, repository.ScoredMemory{
 				NarrativeMemory: mem,
 				Similarity:      1.0,

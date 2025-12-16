@@ -262,7 +262,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		topMem := allMemories[maxIdx]
 		if strings.ToUpper(strings.TrimSpace(topMem.EmotionCategory)) != "NEUTRAL" && maxNorm >= 60 {
 			internalLine := fmt.Sprintf(
-				"- Emocion residual dominante: %s (por un conflicto reciente; debe colorear tu tono aunque el input sea trivial).",
+				"- Emocion residual dominante: %s (estado interno actual; NO asumas eventos previos si no estan en el chat buffer; prioriza el estado emocional sobre trivialidades; no inventes hechos ni atribuyas causas conversacionales).",
 				strings.ToUpper(topMem.EmotionCategory),
 			)
 			sections = append(sections, "[ESTADO INTERNO]\n"+internalLine)

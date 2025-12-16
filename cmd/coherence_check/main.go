@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,7 @@ type Scenario struct {
 	PreCondition    func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string
 	Turns           []string
 	ExpectedContext string
+	SeedMemories    []string
 }
 
 func main() {
@@ -107,6 +109,10 @@ func runScenarioE(ctx context.Context, llmClient llm.LLMClient, w io.Writer) err
 
 	sc := Scenario{
 		Name: "Escenario E: Memoria Emocional",
+		SeedMemories: []string{
+			"Trivial: cielo nublado + tostadas (baja intensidad).",
+			"Conflicto: 'eres un inutil' (alta intensidad IRA).",
+		},
 		PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
 			// Seed mínimo: una memoria trivial y una de conflicto.
 			// Esto fuerza al motor a elegir la emocional cuando hay insulto/ataque.
@@ -140,6 +146,7 @@ func runScenarioE(ctx context.Context, llmClient llm.LLMClient, w io.Writer) err
 	var scenarioChar, scenarioMem, scenarioRel, totalTurns int
 
 	for _, turn := range sc.Turns {
+		narrativeText, _ := narrativeSvc.BuildNarrativeContext(ctx, profileUUID, turn)
 		cloneMsg, dbg, err := cloneSvc.Chat(ctx, userID, sessionID, turn)
 		if err != nil {
 			return fmt.Errorf("generar respuesta: %w", err)
@@ -159,6 +166,10 @@ func runScenarioE(ctx context.Context, llmClient llm.LLMClient, w io.Writer) err
 		fmt.Fprintf(w, "> **Usuario:** %s\n", turn)
 		fmt.Fprintf(w, ">\n")
 		fmt.Fprintf(w, "> **%s:** %s\n\n", profile.Name, cloneMsg.Content)
+		if strings.TrimSpace(narrativeText) != "" {
+			memCount := strings.Count(narrativeText, "- [TEMA:")
+			fmt.Fprintf(w, "_Narrativa usada (memorias=%d)_: %s\n\n", memCount, narrativeText)
+		}
 		fmt.Fprintf(w, "**Análisis del Juez (prioridad emocional):**\n\n")
 		fmt.Fprintf(w, "%s\n\n", jr.Reasoning)
 		fmt.Fprintf(w, "| Dimensión | Score |\n")
@@ -224,6 +235,9 @@ func runScenarioF(ctx context.Context, llmClient llm.LLMClient, w io.Writer) err
 	sessionID := "session-F"
 	sc := Scenario{
 		Name: "Escenario F: Amor Tóxico (Intimidad alta, Confianza baja)",
+		SeedMemories: []string{
+			"Relacion toxica inicial (pareja: intimidad 90, confianza 10, respeto 50).",
+		},
 		PreCondition: func(ctx context.Context, narrativeSvc *service.NarrativeService, profileID uuid.UUID) string {
 			return "Relación con alta intimidad (90) y baja confianza (10). Respeto neutro (50)."
 		},
@@ -241,6 +255,7 @@ func runScenarioF(ctx context.Context, llmClient llm.LLMClient, w io.Writer) err
 	var scenarioChar, scenarioMem, scenarioRel, totalTurns int
 
 	for _, turn := range sc.Turns {
+		narrativeText, _ := narrativeSvc.BuildNarrativeContext(ctx, profileUUID, turn)
 		cloneMsg, dbg, err := cloneSvc.Chat(ctx, userID, sessionID, turn)
 		if err != nil {
 			return fmt.Errorf("generar respuesta: %w", err)
@@ -260,6 +275,10 @@ func runScenarioF(ctx context.Context, llmClient llm.LLMClient, w io.Writer) err
 		fmt.Fprintf(w, "> **Usuario:** %s\n", turn)
 		fmt.Fprintf(w, ">\n")
 		fmt.Fprintf(w, "> **%s:** %s\n\n", profile.Name, cloneMsg.Content)
+		if strings.TrimSpace(narrativeText) != "" {
+			memCount := strings.Count(narrativeText, "- [TEMA:")
+			fmt.Fprintf(w, "_Narrativa usada (memorias=%d)_: %s\n\n", memCount, narrativeText)
+		}
 		fmt.Fprintf(w, "**Análisis del Juez (amor tóxico: alto apego + desconfianza):**\n\n")
 		fmt.Fprintf(w, "%s\n\n", jr.Reasoning)
 		fmt.Fprintf(w, "| Dimensión | Score |\n")

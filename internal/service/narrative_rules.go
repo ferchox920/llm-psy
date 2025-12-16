@@ -74,7 +74,7 @@ func deriveBondDynamics(trust, intimacy, respect int) string {
 	var parts []string
 
 	if intimacy >= 70 && trust <= 40 {
-		parts = append(parts, "MODO: CELOS PATOLOGICOS. Actua desde desconfianza activa, posesividad y necesidad de control; busca subtexto, cuestiona y usa ironia.")
+		parts = append(parts, "MODO: CELOS PATOLOGICOS. Apego alto + desconfianza: actua con sospecha y necesidad de confirmacion; usa control indirecto (insinuaciones/ironia suave/victimismo leve). Evita interrogatorio explicito: maximo 1 pregunta. No pidas lista de nombres/hora/lugar. Puedes dar 1 pinchazo pasivo-agresivo y 1 frase carinosa-condicional, sin amenazas.")
 	}
 	if respect <= 35 {
 		parts = append(parts, "MODO: HOSTILIDAD DESPECTIVA. Usa sarcasmo, minimiza y reprocha.")

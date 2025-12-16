@@ -178,6 +178,31 @@ func TestBuildNarrativeContext_StateInternalUsesNormalizedIntensity(t *testing.T
 	}
 }
 
+func TestBuildNarrativeContext_InternalStateDoesNotImplyPastConversation(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now()
+	profileID := uuid.New()
+
+	wmMemories := []domain.NarrativeMemory{
+		{ID: uuid.New(), CloneProfileID: profileID, Content: "Conflicto leve", EmotionCategory: "IRA", EmotionalIntensity: 8, HappenedAt: now},
+	}
+	charID := uuid.New()
+	charRepo := fakeCharacterRepo{chars: []domain.Character{
+		{ID: charID, CloneProfileID: uuid.Nil, Name: "TestUser", Relationship: domain.RelationshipVectors{Trust: 50, Intimacy: 50, Respect: 50}},
+	}}
+	svc := newNarrativeServiceTestHarnessWithLLM(wmMemories, nil, charRepo, fakeSilentLLM{})
+	text, err := svc.BuildNarrativeContext(ctx, profileID, "input trivial")
+	if err != nil {
+		t.Fatalf("BuildNarrativeContext returned error: %v", err)
+	}
+	if !strings.Contains(text, "[ESTADO INTERNO]") {
+		t.Fatalf("expected ESTADO INTERNO section; got %q", text)
+	}
+	if strings.Contains(strings.ToLower(text), "intercambio anterior") || strings.Contains(strings.ToLower(text), "conflicto reciente") {
+		t.Fatalf("internal state should not imply prior conversation; got %q", text)
+	}
+}
+
 // --- fakes ---
 
 type fakeLLM struct{}

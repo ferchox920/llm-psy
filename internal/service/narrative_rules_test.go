@@ -19,7 +19,8 @@ func TestDeriveBondDynamicsModes(t *testing.T) {
 			trust:    10,
 			intimacy: 90,
 			respect:  50,
-			mustHave: []string{"MODO: CELOS"},
+			mustHave: []string{"MODO: CELOS", "control indirecto", "maximo 1 pregunta"},
+			mustNot:  []string{"cuestiona", "necesidad de control"},
 		},
 		{
 			name:     "no jealous mode when trust ok",

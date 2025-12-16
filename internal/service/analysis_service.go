@@ -154,18 +154,3 @@ type llmTraitItem struct {
 	Value      int      `json:"value"`
 	Confidence *float64 `json:"confidence,omitempty"`
 }
-
-func cleanLLMJSONResponse(resp string) string {
-	text := strings.TrimSpace(resp)
-	if strings.HasPrefix(text, "```") {
-		text = strings.TrimPrefix(text, "```json")
-		text = strings.TrimPrefix(text, "```JSON")
-		text = strings.TrimPrefix(text, "```")
-		text = strings.TrimSpace(text)
-		if idx := strings.LastIndex(text, "```"); idx >= 0 {
-			text = text[:idx]
-			text = strings.TrimSpace(text)
-		}
-	}
-	return text
-}
