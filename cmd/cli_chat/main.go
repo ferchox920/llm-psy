@@ -58,7 +58,10 @@ func main() {
 	testSvc := service.NewTestService(llmClient, analysisSvc, logger)
 	contextSvc := service.NewBasicContextService(messageRepo)
 	narrativeSvc := service.NewNarrativeService(characterRepo, memoryRepo, llmClient)
-	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, analysisSvc)
+	promptBuilder := service.ClonePromptBuilder{}
+	responseParser := service.LLMResponseParser{}
+	reactionEngine := service.ReactionEngine{}
+	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, analysisSvc, promptBuilder, responseParser, reactionEngine)
 
 	user, err := ensureUser(ctx, pool, userRepo, "cli_test@example.com")
 	if err != nil {

@@ -8,9 +8,10 @@ import (
 )
 
 func TestParseLLMResponseSafe_UnescapesEscapedQuotes(t *testing.T) {
+	parser := DefaultLLMResponseParser
 	raw := `{"inner_monologue":"x","public_response":"Dijo: \"hola\" y luego \\ fin","trust_delta":0,"intimacy_delta":0,"respect_delta":0}`
 
-	resp, ok := parseLLMResponseSafe(raw)
+	resp, ok := parser.ParseLLMResponseSafe(raw)
 	if !ok {
 		t.Fatalf("parseLLMResponseSafe returned ok=false")
 	}
@@ -25,14 +26,15 @@ func TestParseLLMResponseSafe_UnescapesEscapedQuotes(t *testing.T) {
 }
 
 func TestParseLLMResponseSafe_FallbackWithEscapedQuotes(t *testing.T) {
-	raw := `inner_monologue: bla bla "public_response":"Ah, \"amigos nuevos\", ¿eh? ¿Quiénes son?"`
+	parser := DefaultLLMResponseParser
+	raw := `inner_monologue: bla bla "public_response":"Ah, \"amigos nuevos\", 隅eh? 隅Quiゼnes son?"`
 
-	resp, ok := parseLLMResponseSafe(raw)
+	resp, ok := parser.ParseLLMResponseSafe(raw)
 	if !ok {
 		t.Fatalf("parseLLMResponseSafe returned ok=false")
 	}
 
-	want := `Ah, "amigos nuevos", ¿eh? ¿Quiénes son?`
+	want := `Ah, "amigos nuevos", 隅eh? 隅Quiゼnes son?`
 	if resp.PublicResponse != want {
 		t.Fatalf("public_response mismatch: got %q want %q", resp.PublicResponse, want)
 	}
@@ -42,20 +44,22 @@ func TestParseLLMResponseSafe_FallbackWithEscapedQuotes(t *testing.T) {
 }
 
 func TestParseLLMResponseSafe_EscapedQuotesAndSpanish(t *testing.T) {
-	raw := `{"inner_monologue":"...","public_response":"Ah, \"amigos nuevos\", ¿eh? ¿Quiénes son?"}`
-	resp, ok := parseLLMResponseSafe(raw)
+	parser := DefaultLLMResponseParser
+	raw := `{"inner_monologue":"...","public_response":"Ah, \"amigos nuevos\", 隅eh? 隅Quiゼnes son?"}`
+	resp, ok := parser.ParseLLMResponseSafe(raw)
 	if !ok {
 		t.Fatalf("expected ok=true")
 	}
-	want := `Ah, "amigos nuevos", ¿eh? ¿Quiénes son?`
+	want := `Ah, "amigos nuevos", 隅eh? 隅Quiゼnes son?`
 	if resp.PublicResponse != want {
 		t.Fatalf("unexpected public_response: got %q want %q", resp.PublicResponse, want)
 	}
 }
 
 func TestParseLLMResponseSafe_EscapedBackslashesAndNewlines(t *testing.T) {
+	parser := DefaultLLMResponseParser
 	raw := `{"public_response":"Linea1\\nLinea2 con \\\\ ruta","trust_delta":0}`
-	resp, ok := parseLLMResponseSafe(raw)
+	resp, ok := parser.ParseLLMResponseSafe(raw)
 	if !ok {
 		t.Fatalf("expected ok=true")
 	}
@@ -66,18 +70,20 @@ func TestParseLLMResponseSafe_EscapedBackslashesAndNewlines(t *testing.T) {
 }
 
 func TestExtractPublicResponseByRegex_InvalidClosingQuote(t *testing.T) {
+	parser := DefaultLLMResponseParser
 	raw := `{"public_response":"Ah, \"amigos nuevos}`
-	val, ok := extractPublicResponseByRegex(raw)
+	val, ok := ExtractPublicResponseByRegex(raw)
 	if ok {
 		t.Fatalf("expected regex extraction to fail on unterminated string, got %q", val)
 	}
-	resp, parsed := parseLLMResponseSafe(raw)
+	resp, parsed := parser.ParseLLMResponseSafe(raw)
 	if parsed && strings.HasSuffix(resp.PublicResponse, `\`) {
 		t.Fatalf("fallback must not end with backslash: %q", resp.PublicResponse)
 	}
 }
 
 func TestDetectHighTensionFromNarrative(t *testing.T) {
+	engine := DefaultReactionEngine
 	tests := []struct {
 		name string
 		text string
@@ -102,19 +108,19 @@ func TestDetectHighTensionFromNarrative(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := detectHighTensionFromNarrative(tt.text); got != tt.want {
-				t.Fatalf("detectHighTensionFromNarrative(%q) = %v, want %v", tt.text, got, tt.want)
+			if got := engine.DetectHighTensionFromNarrative(tt.text); got != tt.want {
+				t.Fatalf("DetectHighTensionFromNarrative(%q) = %v, want %v", tt.text, got, tt.want)
 			}
 		})
 	}
 }
 
 func TestBuildClonePromptIncludesTensionDirectiveWhenStatePresent(t *testing.T) {
-	svc := &CloneService{}
+	builder := ClonePromptBuilder{}
 	profile := domain.CloneProfile{Name: "Test", Bio: "bio"}
 	narrative := "[ESTADO INTERNO]\n- Emocion residual dominante: IRA (por un conflicto reciente; el clon todavia siente esa emocion)."
 
-	prompt := svc.buildClonePrompt(&profile, nil, "", narrative, "hola", false)
+	prompt := builder.BuildClonePrompt(&profile, nil, "", narrative, "hola", false)
 
 	if !strings.Contains(prompt, "Si aparece [ESTADO INTERNO]") {
 		t.Fatalf("expected tension directive when state present; got %q", prompt)
@@ -122,11 +128,11 @@ func TestBuildClonePromptIncludesTensionDirectiveWhenStatePresent(t *testing.T) 
 }
 
 func TestBuildClonePromptOmitsTensionDirectiveWhenNoState(t *testing.T) {
-	svc := &CloneService{}
+	builder := ClonePromptBuilder{}
 	profile := domain.CloneProfile{Name: "Test", Bio: "bio"}
 	narrative := "Resumen cualquiera sin estado interno"
 
-	prompt := svc.buildClonePrompt(&profile, nil, "", narrative, "hola", false)
+	prompt := builder.BuildClonePrompt(&profile, nil, "", narrative, "hola", false)
 
 	if strings.Contains(prompt, "Si aparece [ESTADO INTERNO]") {
 		t.Fatalf("did not expect tension directive without state; got %q", prompt)
@@ -137,7 +143,7 @@ func TestBuildClonePromptOmitsTensionDirectiveWhenNoState(t *testing.T) {
 }
 
 func TestBuildClonePromptConflictOverridesTrivialities(t *testing.T) {
-	svc := &CloneService{}
+	builder := ClonePromptBuilder{}
 	profile := domain.CloneProfile{Name: "Test", Bio: "bio"}
 
 	cases := []struct {
@@ -164,7 +170,7 @@ func TestBuildClonePromptConflictOverridesTrivialities(t *testing.T) {
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			prompt := svc.buildClonePrompt(&profile, nil, "", tt.narrative, "hola", false)
+			prompt := builder.BuildClonePrompt(&profile, nil, "", tt.narrative, "hola", false)
 			hasRule := strings.Contains(prompt, "REGLA DE PRIORIDAD")
 			hasException := strings.Contains(prompt, "EXCEPTO cuando el CONTEXTO Y MEMORIA indiquen conflicto")
 			hasMemoryRule := strings.Contains(prompt, "REGLA DE MEMORIA")
@@ -211,11 +217,11 @@ func TestBuildClonePromptConflictOverridesTrivialities(t *testing.T) {
 }
 
 func TestBuildClonePromptTrivialInputWithNegativeState(t *testing.T) {
-	svc := &CloneService{}
+	builder := ClonePromptBuilder{}
 	profile := domain.CloneProfile{Name: "Test", Bio: "bio"}
-	narrative := "[ESTADO INTERNO]\n- Emocion residual dominante: IRA (estado tenso)\n\n[CONFLICTO]\n- Recuerdo: eres un inútil."
+	narrative := "[ESTADO INTERNO]\n- Emocion residual dominante: IRA (estado tenso)\n\n[CONFLICTO]\n- Recuerdo: eres un inカtil."
 
-	prompt := svc.buildClonePrompt(&profile, nil, "", narrative, "hola", true)
+	prompt := builder.BuildClonePrompt(&profile, nil, "", narrative, "hola", true)
 
 	if !strings.Contains(prompt, "REGLA DE TRIVIALIDAD CONFLICTIVA") {
 		t.Fatalf("expected triviality-conflict rule in prompt; got %q", prompt)
@@ -235,7 +241,7 @@ func TestBuildClonePromptTrivialInputWithNegativeState(t *testing.T) {
 }
 
 func TestBuildClonePromptTensionTable(t *testing.T) {
-	svc := &CloneService{}
+	builder := ClonePromptBuilder{}
 	profile := domain.CloneProfile{Name: "Test", Bio: "bio"}
 
 	cases := []struct {
@@ -286,7 +292,7 @@ func TestBuildClonePromptTensionTable(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			prompt := svc.buildClonePrompt(&profile, nil, "", tc.narrative, "hola", tc.trivial)
+			prompt := builder.BuildClonePrompt(&profile, nil, "", tc.narrative, "hola", tc.trivial)
 			for _, sub := range tc.expect {
 				if !strings.Contains(prompt, sub) {
 					t.Fatalf("expected substring %q in prompt; got %q", sub, prompt)
@@ -297,11 +303,11 @@ func TestBuildClonePromptTensionTable(t *testing.T) {
 }
 
 func TestBuildClonePromptRelationshipGuidanceHints(t *testing.T) {
-	svc := &CloneService{}
+	builder := ClonePromptBuilder{}
 	profile := domain.CloneProfile{Name: "Test", Bio: "bio"}
 	narrative := "[CONFLICTO]\n- Hubo reproches y tension.\n[ESTADO INTERNO]\n- Emocion residual dominante: IRA"
 
-	prompt := svc.buildClonePrompt(&profile, nil, "context", narrative, "hola", false)
+	prompt := builder.BuildClonePrompt(&profile, nil, "context", narrative, "hola", false)
 
 	if !strings.Contains(prompt, "Evita interrogatorio") {
 		t.Fatalf("expected guidance to avoid interrogatorio; got %q", prompt)

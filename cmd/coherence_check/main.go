@@ -102,7 +102,10 @@ func runScenarioE(ctx context.Context, llmClient llm.LLMClient, w io.Writer) err
 	contextSvc := service.NewBasicContextService(msgRepo)
 	narrativeSvc := service.NewNarrativeService(charRepo, memRepo, llmClient)
 	analysisSvc := service.NewAnalysisService(llmClient, traitRepo, profileRepo, zap.NewNop())
-	cloneSvc := service.NewCloneService(llmClient, msgRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, analysisSvc)
+	promptBuilder := service.ClonePromptBuilder{}
+	responseParser := service.LLMResponseParser{}
+	reactionEngine := service.ReactionEngine{}
+	cloneSvc := service.NewCloneService(llmClient, msgRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, analysisSvc, promptBuilder, responseParser, reactionEngine)
 
 	profileUUID, _ := uuid.Parse(profile.ID)
 	sessionID := "session-E"
@@ -221,7 +224,10 @@ func runScenarioF(ctx context.Context, llmClient llm.LLMClient, w io.Writer) err
 	contextSvc := service.NewBasicContextService(msgRepo)
 	narrativeSvc := service.NewNarrativeService(charRepo, memRepo, llmClient)
 	analysisSvc := service.NewAnalysisService(llmClient, traitRepo, profileRepo, zap.NewNop())
-	cloneSvc := service.NewCloneService(llmClient, msgRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, analysisSvc)
+	promptBuilder2 := service.ClonePromptBuilder{}
+	responseParser2 := service.LLMResponseParser{}
+	reactionEngine2 := service.ReactionEngine{}
+	cloneSvc := service.NewCloneService(llmClient, msgRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, analysisSvc, promptBuilder2, responseParser2, reactionEngine2)
 
 	profileUUID, _ := uuid.Parse(profile.ID)
 	if err := narrativeSvc.CreateRelation(ctx, profileUUID, "Usuario", "Pareja", "Amor Toxico", domain.RelationshipVectors{
