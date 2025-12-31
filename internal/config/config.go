@@ -9,6 +9,16 @@ type Config struct {
 	LLMAPIKey   string `env:"LLM_API_KEY,required"`
 	LLMBaseURL  string `env:"LLM_BASE_URL" envDefault:"https://api.openai.com/v1"`
 	LLMModel    string `env:"LLM_MODEL" envDefault:"gpt-5.1"`
+	SMTPHost    string `env:"SMTP_HOST"`
+	SMTPPort    int    `env:"SMTP_PORT" envDefault:"587"`
+	SMTPUser    string `env:"SMTP_USER"`
+	SMTPPass    string `env:"SMTP_PASS"`
+	SMTPFrom    string `env:"SMTP_FROM"`
+	SMTPFromName string `env:"SMTP_FROM_NAME"`
+	SMTPUseTLS  bool   `env:"SMTP_USE_TLS" envDefault:"false"`
+	RedisAddr   string `env:"REDIS_ADDR"`
+	RedisPassword string `env:"REDIS_PASSWORD"`
+	RedisDB     int    `env:"REDIS_DB" envDefault:"0"`
 }
 
 // LoadConfig carga la configuración desde variables de entorno.
