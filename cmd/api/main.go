@@ -53,10 +53,10 @@ func main() {
 	responseParser := service.LLMResponseParser{}
 	reactionEngine := service.ReactionEngine{}
 	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, analysisSvc, promptBuilder, responseParser, reactionEngine)
-	testSvc := service.NewTestService(llmClient, analysisSvc, logger)
-
-	handlers := apihttp.NewHandlers(logger, userRepo, profileRepo, sessionRepo, messageRepo, traitRepo, llmClient, analysisSvc, cloneSvc, testSvc)
-	router := apihttp.NewRouter(logger, handlers)
+	userHandler := apihttp.NewUserHandler(logger, userRepo)
+	cloneHandler := apihttp.NewCloneHandler(logger, profileRepo, traitRepo)
+	chatHandler := apihttp.NewChatHandler(logger, sessionRepo, messageRepo, analysisSvc, cloneSvc)
+	router := apihttp.NewRouter(logger, userHandler, chatHandler, cloneHandler)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,

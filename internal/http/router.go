@@ -8,18 +8,27 @@ import (
 )
 
 // NewRouter configura el router de Gin con middlewares y rutas base.
-func NewRouter(logger *zap.Logger, handlers *Handlers) *gin.Engine {
+func NewRouter(
+	logger *zap.Logger,
+	userH *UserHandler,
+	chatH *ChatHandler,
+	cloneH *CloneHandler,
+) *gin.Engine {
 	r := gin.New()
 
-	// Middlewares básicos: logging, recovery y JSON content-type.
+	// Middlewares basicos: logging, recovery y JSON content-type.
 	r.Use(zapLoggerMiddleware(logger), gin.Recovery(), jsonContentTypeMiddleware())
 
 	// Rutas Sprint 1.
-	r.POST("/users", handlers.CreateUser)
-	r.POST("/clone/init", handlers.InitClone)
-	r.GET("/clone/profile", handlers.GetCloneProfile)
-	r.POST("/session", handlers.CreateSession)
-	r.POST("/message", handlers.PostMessage)
+	users := r.Group("/users")
+	users.POST("", userH.CreateUser)
+
+	clone := r.Group("/clone")
+	clone.POST("/init", cloneH.InitClone)
+	clone.GET("/profile", cloneH.GetCloneProfile)
+
+	r.POST("/session", chatH.CreateSession)
+	r.POST("/message", chatH.PostMessage)
 
 	return r
 }
