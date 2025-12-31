@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 
 	"clone-llm/internal/domain"
 	"clone-llm/internal/email"
@@ -47,6 +48,7 @@ type CreateUserInput struct {
 	DisplayName     string
 	AuthProvider    string
 	AuthSubject     string
+	Password        string
 	PasswordHash    string
 	EmailVerifiedAt *time.Time
 	OtpCodeHash     string
@@ -61,6 +63,7 @@ var (
 	ErrOAuthInvalid     = errors.New("oauth data invalid")
 	ErrEmailSendFailure = errors.New("email send failed")
 	ErrRateLimited      = errors.New("rate limited")
+	ErrInvalidCredentials = errors.New("invalid credentials")
 )
 
 const otpTTL = 10 * time.Minute
@@ -71,6 +74,15 @@ func (s *UserService) CreateUser(ctx context.Context, input CreateUserInput) (do
 	authProvider := strings.TrimSpace(input.AuthProvider)
 	authSubject := strings.TrimSpace(input.AuthSubject)
 	passwordHash := strings.TrimSpace(input.PasswordHash)
+	password := strings.TrimSpace(input.Password)
+
+	if passwordHash == "" && password != "" {
+		hashBytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return domain.User{}, err
+		}
+		passwordHash = string(hashBytes)
+	}
 
 	// TODO: integrar verificacion de seguridad y OAuth en este flujo.
 	user := domain.User{
@@ -90,6 +102,28 @@ func (s *UserService) CreateUser(ctx context.Context, input CreateUserInput) (do
 		return domain.User{}, err
 	}
 
+	return user, nil
+}
+
+func (s *UserService) Authenticate(ctx context.Context, emailAddr, password string) (domain.User, error) {
+	emailAddr = strings.TrimSpace(emailAddr)
+	password = strings.TrimSpace(password)
+	if emailAddr == "" || password == "" {
+		return domain.User{}, ErrInvalidCredentials
+	}
+	user, err := s.users.GetByEmail(ctx, emailAddr)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.User{}, ErrInvalidCredentials
+		}
+		return domain.User{}, err
+	}
+	if user.PasswordHash == "" {
+		return domain.User{}, ErrInvalidCredentials
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return domain.User{}, ErrInvalidCredentials
+	}
 	return user, nil
 }
 

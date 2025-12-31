@@ -27,6 +27,9 @@ func NewRouter(
 	auth.POST("/otp/request", userH.RequestOTP)
 	auth.POST("/otp/verify", userH.VerifyOTP)
 	auth.POST("/oauth", userH.OAuthLogin)
+	auth.POST("/login", userH.Login)
+	auth.POST("/refresh", userH.RefreshToken)
+	auth.POST("/logout", userH.Logout)
 
 	clone := r.Group("/clone")
 	clone.POST("/init", cloneH.InitClone)

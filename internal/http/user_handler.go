@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"clone-llm/internal/domain"
 	"clone-llm/internal/service"
 )
 
@@ -14,13 +15,15 @@ import (
 type UserHandler struct {
 	logger   *zap.Logger
 	userServ *service.UserService
+	jwtServ  *service.JWTService
 }
 
 // NewUserHandler crea una instancia de UserHandler con dependencias necesarias.
-func NewUserHandler(logger *zap.Logger, userServ *service.UserService) *UserHandler {
+func NewUserHandler(logger *zap.Logger, userServ *service.UserService, jwtServ *service.JWTService) *UserHandler {
 	return &UserHandler{
 		logger:   logger,
 		userServ: userServ,
+		jwtServ:  jwtServ,
 	}
 }
 
@@ -29,6 +32,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	var req struct {
 		Email       string `json:"email" binding:"required,email"`
 		DisplayName string `json:"display_name"`
+		Password    string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		h.logger.Warn("invalid create user request", zap.Error(err))
@@ -39,6 +43,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	user, err := h.userServ.CreateUser(c.Request.Context(), service.CreateUserInput{
 		Email:       req.Email,
 		DisplayName: req.DisplayName,
+		Password:    req.Password,
 	})
 	if err != nil {
 		h.logger.Error("create user failed", zap.Error(err))
@@ -109,7 +114,13 @@ func (h *UserHandler) VerifyOTP(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"user": user})
+	tokens, err := h.issueTokens(user)
+	if err != nil {
+		h.logger.Error("jwt issue failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not issue tokens"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"user": user, "tokens": tokens})
 }
 
 // OAuthLogin maneja POST /auth/oauth.
@@ -142,5 +153,90 @@ func (h *UserHandler) OAuthLogin(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"user": user})
+	tokens, err := h.issueTokens(user)
+	if err != nil {
+		h.logger.Error("jwt issue failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not issue tokens"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"user": user, "tokens": tokens})
+}
+
+// Login maneja POST /auth/login.
+func (h *UserHandler) Login(c *gin.Context) {
+	var req struct {
+		Email    string `json:"email" binding:"required,email"`
+		Password string `json:"password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.logger.Warn("invalid login request", zap.Error(err))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	user, err := h.userServ.Authenticate(c.Request.Context(), req.Email, req.Password)
+	if err != nil {
+		if errors.Is(err, service.ErrInvalidCredentials) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+			return
+		}
+		h.logger.Error("login failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not login"})
+		return
+	}
+
+	tokens, err := h.issueTokens(user)
+	if err != nil {
+		h.logger.Error("jwt issue failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not issue tokens"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"user": user, "tokens": tokens})
+}
+
+// RefreshToken maneja POST /auth/refresh.
+func (h *UserHandler) RefreshToken(c *gin.Context) {
+	var req struct {
+		RefreshToken string `json:"refresh_token" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.logger.Warn("invalid refresh request", zap.Error(err))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	if h.jwtServ == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "jwt not configured"})
+		return
+	}
+	tokens, err := h.jwtServ.RefreshPair(req.RefreshToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"tokens": tokens})
+}
+
+// Logout maneja POST /auth/logout.
+func (h *UserHandler) Logout(c *gin.Context) {
+	var req struct {
+		RefreshToken string `json:"refresh_token" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		h.logger.Warn("invalid logout request", zap.Error(err))
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	if h.jwtServ == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "jwt not configured"})
+		return
+	}
+	_ = h.jwtServ.RevokeRefresh(req.RefreshToken)
+	c.Status(http.StatusNoContent)
+}
+
+func (h *UserHandler) issueTokens(user domain.User) (service.TokenPair, error) {
+	if h.jwtServ == nil {
+		return service.TokenPair{}, errors.New("jwt not configured")
+	}
+	return h.jwtServ.GeneratePair(user)
 }

@@ -19,6 +19,9 @@ type Config struct {
 	RedisAddr   string `env:"REDIS_ADDR"`
 	RedisPassword string `env:"REDIS_PASSWORD"`
 	RedisDB     int    `env:"REDIS_DB" envDefault:"0"`
+	JWTSecret   string `env:"JWT_SECRET"`
+	JWTAccessTTLMinutes  int `env:"JWT_ACCESS_TTL_MINUTES" envDefault:"15"`
+	JWTRefreshTTLMinutes int `env:"JWT_REFRESH_TTL_MINUTES" envDefault:"43200"`
 }
 
 // LoadConfig carga la configuración desde variables de entorno.

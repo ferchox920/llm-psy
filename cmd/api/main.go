@@ -64,9 +64,13 @@ func main() {
 			emailSender = sender
 		}
 	}
-	var otpLimiter service.OTPRateLimiter
+	var (
+		otpLimiter   service.OTPRateLimiter
+		tokenStore   service.RefreshTokenStore
+		redisClient *redis.Client
+	)
 	if cfg.RedisAddr != "" {
-		redisClient := redis.NewClient(&redis.Options{
+		redisClient = redis.NewClient(&redis.Options{
 			Addr:     cfg.RedisAddr,
 			Password: cfg.RedisPassword,
 			DB:       cfg.RedisDB,
@@ -76,11 +80,22 @@ func main() {
 			logger.Warn("redis ping failed", zap.Error(err))
 		} else {
 			otpLimiter = service.NewRedisOTPRateLimiter(redisClient, 10*time.Minute, 3)
+			tokenStore = service.NewRedisRefreshTokenStore(redisClient)
 		}
 		cancel()
 	}
+	jwtSvc := service.NewJWTServiceWithStore(
+		cfg.JWTSecret,
+		time.Duration(cfg.JWTAccessTTLMinutes)*time.Minute,
+		time.Duration(cfg.JWTRefreshTTLMinutes)*time.Minute,
+		tokenStore,
+	)
+	if cfg.JWTSecret == "" {
+		logger.Warn("jwt secret not configured")
+	}
+
 	userSvc := service.NewUserService(logger, userRepo, emailSender, otpLimiter)
-	userHandler := apihttp.NewUserHandler(logger, userSvc)
+	userHandler := apihttp.NewUserHandler(logger, userSvc, jwtSvc)
 	cloneHandler := apihttp.NewCloneHandler(logger, profileRepo, traitRepo)
 	chatHandler := apihttp.NewChatHandler(logger, sessionRepo, messageRepo, analysisSvc, cloneSvc)
 	router := apihttp.NewRouter(logger, userHandler, chatHandler, cloneHandler)
