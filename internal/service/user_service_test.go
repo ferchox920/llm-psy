@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 
 	"clone-llm/internal/domain"
 )
@@ -299,5 +300,44 @@ func TestUserServiceRequestOTP_RateLimited(t *testing.T) {
 	_, err := svc.RequestOTP(context.Background(), "user@example.com", "")
 	if !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("expected ErrRateLimited, got %v", err)
+	}
+}
+
+func TestUserServiceAuthenticate_Success(t *testing.T) {
+	repo := newMockUserRepo()
+	sender := &mockEmailSender{}
+	svc := NewUserService(zap.NewNop(), repo, sender, nil)
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash failed: %v", err)
+	}
+	user := domain.User{
+		ID:           "u1",
+		Email:        "user@example.com",
+		PasswordHash: string(hash),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := repo.Create(context.Background(), user); err != nil {
+		t.Fatalf("create user failed: %v", err)
+	}
+
+	got, err := svc.Authenticate(context.Background(), "user@example.com", "secret123")
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if got.ID != "u1" {
+		t.Fatalf("expected user u1, got %s", got.ID)
+	}
+}
+
+func TestUserServiceAuthenticate_InvalidCredentials(t *testing.T) {
+	repo := newMockUserRepo()
+	sender := &mockEmailSender{}
+	svc := NewUserService(zap.NewNop(), repo, sender, nil)
+
+	_, err := svc.Authenticate(context.Background(), "missing@example.com", "secret123")
+	if !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("expected ErrInvalidCredentials, got %v", err)
 	}
 }

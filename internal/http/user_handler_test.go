@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 
 	"clone-llm/internal/domain"
 	"clone-llm/internal/service"
@@ -116,14 +117,17 @@ func (m *mockEmailSender) SendVerificationOTP(_ context.Context, toEmail string,
 	return m.err
 }
 
-func setupUserRouter(userSvc *service.UserService) *gin.Engine {
+func setupUserRouter(userSvc *service.UserService, jwtSvc *service.JWTService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := NewUserHandler(zap.NewNop(), userSvc)
+	h := NewUserHandler(zap.NewNop(), userSvc, jwtSvc)
 	r.POST("/users", h.CreateUser)
 	r.POST("/auth/otp/request", h.RequestOTP)
 	r.POST("/auth/otp/verify", h.VerifyOTP)
 	r.POST("/auth/oauth", h.OAuthLogin)
+	r.POST("/auth/login", h.Login)
+	r.POST("/auth/refresh", h.RefreshToken)
+	r.POST("/auth/logout", h.Logout)
 	return r
 }
 
@@ -143,7 +147,8 @@ func TestUserHandlerRequestOTP_Success(t *testing.T) {
 	repo := newMockUserRepo()
 	sender := &mockEmailSender{}
 	svc := service.NewUserService(zap.NewNop(), repo, sender, nil)
-	r := setupUserRouter(svc)
+	jwtSvc := service.NewJWTServiceWithStore("test-secret", 15*time.Minute, 30*time.Minute, service.NewMemoryRefreshTokenStore())
+	r := setupUserRouter(svc, jwtSvc)
 
 	rec := performRequest(r, http.MethodPost, "/auth/otp/request", map[string]string{
 		"email": "user@example.com",
@@ -160,7 +165,8 @@ func TestUserHandlerRequestOTP_EmailSendFailure(t *testing.T) {
 	repo := newMockUserRepo()
 	sender := &mockEmailSender{err: errors.New("smtp down")}
 	svc := service.NewUserService(zap.NewNop(), repo, sender, nil)
-	r := setupUserRouter(svc)
+	jwtSvc := service.NewJWTServiceWithStore("test-secret", 15*time.Minute, 30*time.Minute, service.NewMemoryRefreshTokenStore())
+	r := setupUserRouter(svc, jwtSvc)
 
 	rec := performRequest(r, http.MethodPost, "/auth/otp/request", map[string]string{
 		"email": "user@example.com",
@@ -174,7 +180,8 @@ func TestUserHandlerVerifyOTP_UserNotFound(t *testing.T) {
 	repo := newMockUserRepo()
 	sender := &mockEmailSender{}
 	svc := service.NewUserService(zap.NewNop(), repo, sender, nil)
-	r := setupUserRouter(svc)
+	jwtSvc := service.NewJWTServiceWithStore("test-secret", 15*time.Minute, 30*time.Minute, service.NewMemoryRefreshTokenStore())
+	r := setupUserRouter(svc, jwtSvc)
 
 	rec := performRequest(r, http.MethodPost, "/auth/otp/verify", map[string]string{
 		"email": "missing@example.com",
@@ -189,7 +196,8 @@ func TestUserHandlerVerifyOTP_InvalidCode(t *testing.T) {
 	repo := newMockUserRepo()
 	sender := &mockEmailSender{}
 	svc := service.NewUserService(zap.NewNop(), repo, sender, nil)
-	r := setupUserRouter(svc)
+	jwtSvc := service.NewJWTServiceWithStore("test-secret", 15*time.Minute, 30*time.Minute, service.NewMemoryRefreshTokenStore())
+	r := setupUserRouter(svc, jwtSvc)
 
 	rec := performRequest(r, http.MethodPost, "/auth/otp/request", map[string]string{
 		"email": "user@example.com",
@@ -211,7 +219,8 @@ func TestUserHandlerOAuthLogin_InvalidRequest(t *testing.T) {
 	repo := newMockUserRepo()
 	sender := &mockEmailSender{}
 	svc := service.NewUserService(zap.NewNop(), repo, sender, nil)
-	r := setupUserRouter(svc)
+	jwtSvc := service.NewJWTServiceWithStore("test-secret", 15*time.Minute, 30*time.Minute, service.NewMemoryRefreshTokenStore())
+	r := setupUserRouter(svc, jwtSvc)
 
 	rec := performRequest(r, http.MethodPost, "/auth/oauth", map[string]string{})
 	if rec.Code != http.StatusBadRequest {
@@ -223,7 +232,8 @@ func TestUserHandlerOAuthLogin_Success(t *testing.T) {
 	repo := newMockUserRepo()
 	sender := &mockEmailSender{}
 	svc := service.NewUserService(zap.NewNop(), repo, sender, nil)
-	r := setupUserRouter(svc)
+	jwtSvc := service.NewJWTServiceWithStore("test-secret", 15*time.Minute, 30*time.Minute, service.NewMemoryRefreshTokenStore())
+	r := setupUserRouter(svc, jwtSvc)
 
 	rec := performRequest(r, http.MethodPost, "/auth/oauth", map[string]string{
 		"provider":     "google",
@@ -249,7 +259,8 @@ func TestUserHandlerRequestOTP_RateLimited(t *testing.T) {
 	sender := &mockEmailSender{}
 	limiter := &mockLimiter{allow: false}
 	svc := service.NewUserService(zap.NewNop(), repo, sender, limiter)
-	r := setupUserRouter(svc)
+	jwtSvc := service.NewJWTServiceWithStore("test-secret", 15*time.Minute, 30*time.Minute, service.NewMemoryRefreshTokenStore())
+	r := setupUserRouter(svc, jwtSvc)
 
 	rec := performRequest(r, http.MethodPost, "/auth/otp/request", map[string]string{
 		"email": "user@example.com",
@@ -263,7 +274,8 @@ func TestUserHandlerCreateUser_Success(t *testing.T) {
 	repo := newMockUserRepo()
 	sender := &mockEmailSender{}
 	svc := service.NewUserService(zap.NewNop(), repo, sender, nil)
-	r := setupUserRouter(svc)
+	jwtSvc := service.NewJWTServiceWithStore("test-secret", 15*time.Minute, 30*time.Minute, service.NewMemoryRefreshTokenStore())
+	r := setupUserRouter(svc, jwtSvc)
 
 	rec := performRequest(r, http.MethodPost, "/users", map[string]string{
 		"email":        "user@example.com",
@@ -278,12 +290,96 @@ func TestUserHandlerCreateUser_InvalidRequest(t *testing.T) {
 	repo := newMockUserRepo()
 	sender := &mockEmailSender{}
 	svc := service.NewUserService(zap.NewNop(), repo, sender, nil)
-	r := setupUserRouter(svc)
+	jwtSvc := service.NewJWTServiceWithStore("test-secret", 15*time.Minute, 30*time.Minute, service.NewMemoryRefreshTokenStore())
+	r := setupUserRouter(svc, jwtSvc)
 
 	rec := performRequest(r, http.MethodPost, "/users", map[string]string{
 		"email": "not-an-email",
 	})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", rec.Code)
+	}
+}
+
+func TestUserHandlerLogin_Success(t *testing.T) {
+	repo := newMockUserRepo()
+	sender := &mockEmailSender{}
+	svc := service.NewUserService(zap.NewNop(), repo, sender, nil)
+	jwtSvc := service.NewJWTServiceWithStore("test-secret", 15*time.Minute, 30*time.Minute, service.NewMemoryRefreshTokenStore())
+	r := setupUserRouter(svc, jwtSvc)
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash failed: %v", err)
+	}
+	user := domain.User{
+		ID:           "u1",
+		Email:        "user@example.com",
+		PasswordHash: string(hash),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := repo.Create(context.Background(), user); err != nil {
+		t.Fatalf("create user failed: %v", err)
+	}
+
+	rec := performRequest(r, http.MethodPost, "/auth/login", map[string]string{
+		"email":    "user@example.com",
+		"password": "secret123",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	var resp struct {
+		Tokens service.TokenPair `json:"tokens"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if resp.Tokens.AccessToken == "" || resp.Tokens.RefreshToken == "" {
+		t.Fatalf("expected tokens in response")
+	}
+}
+
+func TestUserHandlerRefreshToken_Success(t *testing.T) {
+	repo := newMockUserRepo()
+	sender := &mockEmailSender{}
+	svc := service.NewUserService(zap.NewNop(), repo, sender, nil)
+	jwtSvc := service.NewJWTServiceWithStore("test-secret", 15*time.Minute, 30*time.Minute, service.NewMemoryRefreshTokenStore())
+	r := setupUserRouter(svc, jwtSvc)
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash failed: %v", err)
+	}
+	user := domain.User{
+		ID:           "u1",
+		Email:        "user@example.com",
+		PasswordHash: string(hash),
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := repo.Create(context.Background(), user); err != nil {
+		t.Fatalf("create user failed: %v", err)
+	}
+
+	rec := performRequest(r, http.MethodPost, "/auth/login", map[string]string{
+		"email":    "user@example.com",
+		"password": "secret123",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	var loginResp struct {
+		Tokens service.TokenPair `json:"tokens"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &loginResp); err != nil {
+		t.Fatalf("unmarshal login response failed: %v", err)
+	}
+
+	rec = performRequest(r, http.MethodPost, "/auth/refresh", map[string]string{
+		"refresh_token": loginResp.Tokens.RefreshToken,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
 	}
 }
