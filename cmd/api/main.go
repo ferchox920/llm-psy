@@ -8,12 +8,14 @@ import (
 
 	"clone-llm/internal/config"
 	"clone-llm/internal/db"
+	"clone-llm/internal/email"
 	apihttp "clone-llm/internal/http"
 	"clone-llm/internal/llm"
 	"clone-llm/internal/repository"
 	"clone-llm/internal/service"
 
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
@@ -53,7 +55,32 @@ func main() {
 	responseParser := service.LLMResponseParser{}
 	reactionEngine := service.ReactionEngine{}
 	cloneSvc := service.NewCloneService(llmClient, messageRepo, profileRepo, traitRepo, contextSvc, narrativeSvc, analysisSvc, promptBuilder, responseParser, reactionEngine)
-	userHandler := apihttp.NewUserHandler(logger, userRepo)
+	emailSender := email.NewDisabledSender("email sender not configured")
+	if cfg.SMTPHost != "" {
+		sender, err := email.NewSMTPSender(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPass, cfg.SMTPFrom, cfg.SMTPFromName, cfg.SMTPUseTLS)
+		if err != nil {
+			logger.Warn("smtp sender init failed", zap.Error(err))
+		} else {
+			emailSender = sender
+		}
+	}
+	var otpLimiter service.OTPRateLimiter
+	if cfg.RedisAddr != "" {
+		redisClient := redis.NewClient(&redis.Options{
+			Addr:     cfg.RedisAddr,
+			Password: cfg.RedisPassword,
+			DB:       cfg.RedisDB,
+		})
+		ctxPing, cancel := context.WithTimeout(ctx, 2*time.Second)
+		if err := redisClient.Ping(ctxPing).Err(); err != nil {
+			logger.Warn("redis ping failed", zap.Error(err))
+		} else {
+			otpLimiter = service.NewRedisOTPRateLimiter(redisClient, 10*time.Minute, 3)
+		}
+		cancel()
+	}
+	userSvc := service.NewUserService(logger, userRepo, emailSender, otpLimiter)
+	userHandler := apihttp.NewUserHandler(logger, userSvc)
 	cloneHandler := apihttp.NewCloneHandler(logger, profileRepo, traitRepo)
 	chatHandler := apihttp.NewChatHandler(logger, sessionRepo, messageRepo, analysisSvc, cloneSvc)
 	router := apihttp.NewRouter(logger, userHandler, chatHandler, cloneHandler)

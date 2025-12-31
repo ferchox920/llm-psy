@@ -23,6 +23,11 @@ func NewRouter(
 	users := r.Group("/users")
 	users.POST("", userH.CreateUser)
 
+	auth := r.Group("/auth")
+	auth.POST("/otp/request", userH.RequestOTP)
+	auth.POST("/otp/verify", userH.VerifyOTP)
+	auth.POST("/oauth", userH.OAuthLogin)
+
 	clone := r.Group("/clone")
 	clone.POST("/init", cloneH.InitClone)
 	clone.GET("/profile", cloneH.GetCloneProfile)
