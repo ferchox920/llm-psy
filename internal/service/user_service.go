@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -56,22 +57,31 @@ type CreateUserInput struct {
 }
 
 var (
-	ErrUserNotFound     = errors.New("user not found")
-	ErrOTPNotRequested  = errors.New("otp not requested")
-	ErrOTPExpired       = errors.New("otp expired")
-	ErrOTPInvalid       = errors.New("otp invalid")
-	ErrOAuthInvalid     = errors.New("oauth data invalid")
-	ErrEmailSendFailure = errors.New("email send failed")
-	ErrRateLimited      = errors.New("rate limited")
+	ErrUserNotFound       = errors.New("user not found")
+	ErrOTPNotRequested    = errors.New("otp not requested")
+	ErrOTPExpired         = errors.New("otp expired")
+	ErrOTPInvalid         = errors.New("otp invalid")
+	ErrOAuthInvalid       = errors.New("oauth data invalid")
+	ErrEmailSendFailure   = errors.New("email send failed")
+	ErrRateLimited        = errors.New("rate limited")
 	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrInvalidEmail       = errors.New("invalid email")
 )
 
 const otpTTL = 10 * time.Minute
 
 func (s *UserService) CreateUser(ctx context.Context, input CreateUserInput) (domain.User, error) {
-	email := strings.TrimSpace(input.Email)
+	if s.users == nil {
+		return domain.User{}, errors.New("user service not configured")
+	}
+
+	email := normalizeEmail(input.Email)
+	if email == "" {
+		return domain.User{}, ErrInvalidEmail
+	}
+
 	displayName := strings.TrimSpace(input.DisplayName)
-	authProvider := strings.TrimSpace(input.AuthProvider)
+	authProvider := strings.ToLower(strings.TrimSpace(input.AuthProvider))
 	authSubject := strings.TrimSpace(input.AuthSubject)
 	passwordHash := strings.TrimSpace(input.PasswordHash)
 	password := strings.TrimSpace(input.Password)
@@ -106,7 +116,11 @@ func (s *UserService) CreateUser(ctx context.Context, input CreateUserInput) (do
 }
 
 func (s *UserService) Authenticate(ctx context.Context, emailAddr, password string) (domain.User, error) {
-	emailAddr = strings.TrimSpace(emailAddr)
+	if s.users == nil {
+		return domain.User{}, errors.New("user service not configured")
+	}
+
+	emailAddr = normalizeEmail(emailAddr)
 	password = strings.TrimSpace(password)
 	if emailAddr == "" || password == "" {
 		return domain.User{}, ErrInvalidCredentials
@@ -135,9 +149,13 @@ type OAuthInput struct {
 }
 
 func (s *UserService) UpsertOAuthUser(ctx context.Context, input OAuthInput) (domain.User, error) {
-	provider := strings.TrimSpace(input.Provider)
+	if s.users == nil {
+		return domain.User{}, errors.New("user service not configured")
+	}
+
+	provider := strings.ToLower(strings.TrimSpace(input.Provider))
 	subject := strings.TrimSpace(input.Subject)
-	emailAddr := strings.TrimSpace(input.Email)
+	emailAddr := normalizeEmail(input.Email)
 	displayName := strings.TrimSpace(input.DisplayName)
 
 	if provider == "" || subject == "" {
@@ -192,10 +210,14 @@ func (s *UserService) UpsertOAuthUser(ctx context.Context, input OAuthInput) (do
 }
 
 func (s *UserService) RequestOTP(ctx context.Context, emailAddr, displayName string) (domain.User, error) {
-	emailAddr = strings.TrimSpace(emailAddr)
+	if s.users == nil {
+		return domain.User{}, errors.New("user service not configured")
+	}
+
+	emailAddr = normalizeEmail(emailAddr)
 	displayName = strings.TrimSpace(displayName)
 	if emailAddr == "" {
-		return domain.User{}, fmt.Errorf("email is required")
+		return domain.User{}, ErrInvalidEmail
 	}
 
 	if s.otpLimiter != nil && !s.otpLimiter.Allow(emailAddr) {
@@ -232,7 +254,9 @@ func (s *UserService) RequestOTP(ctx context.Context, emailAddr, displayName str
 		return domain.User{}, ErrEmailSendFailure
 	}
 	if err := s.emailSender.SendVerificationOTP(ctx, emailAddr, code, expiresAt); err != nil {
-		s.logger.Warn("send verification otp failed", zap.Error(err), zap.String("email", emailAddr))
+		if s.logger != nil {
+			s.logger.Warn("send verification otp failed", zap.Error(err), zap.String("email", emailAddr))
+		}
 		return domain.User{}, ErrEmailSendFailure
 	}
 
@@ -241,9 +265,16 @@ func (s *UserService) RequestOTP(ctx context.Context, emailAddr, displayName str
 }
 
 func (s *UserService) VerifyOTP(ctx context.Context, emailAddr, code string) (domain.User, error) {
-	emailAddr = strings.TrimSpace(emailAddr)
+	if s.users == nil {
+		return domain.User{}, errors.New("user service not configured")
+	}
+
+	emailAddr = normalizeEmail(emailAddr)
 	code = strings.TrimSpace(code)
-	if emailAddr == "" || code == "" {
+	if emailAddr == "" {
+		return domain.User{}, ErrInvalidEmail
+	}
+	if !isValidOTPCode(code) {
 		return domain.User{}, ErrOTPInvalid
 	}
 
@@ -305,6 +336,22 @@ func verifyOTP(code, stored string) bool {
 	hashBytes := sha256.Sum256([]byte(saltStr + ":" + code))
 	hash := base64.StdEncoding.EncodeToString(hashBytes[:])
 	return subtle.ConstantTimeCompare([]byte(hash), []byte(expectedHash)) == 1
+}
+
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func isValidOTPCode(code string) bool {
+	if len(code) != 6 {
+		return false
+	}
+	for _, r := range code {
+		if !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // OTPRateLimiter limita la frecuencia de solicitudes de OTP por clave.

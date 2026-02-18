@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -93,11 +94,17 @@ func (s *JWTService) RefreshPair(refreshToken string) (TokenPair, error) {
 	if len(s.secret) == 0 {
 		return TokenPair{}, ErrJWTInvalid
 	}
+	if strings.TrimSpace(refreshToken) == "" {
+		return TokenPair{}, ErrJWTInvalid
+	}
 	claims, err := s.parseToken(refreshToken)
 	if err != nil {
 		return TokenPair{}, err
 	}
 	if claims.TokenType != "refresh" {
+		return TokenPair{}, ErrJWTInvalid
+	}
+	if !s.isValidClaims(claims) {
 		return TokenPair{}, ErrJWTInvalid
 	}
 	if claims.ID == "" || s.store == nil {
@@ -128,9 +135,15 @@ func (s *JWTService) RevokeRefresh(refreshToken string) error {
 	if len(s.secret) == 0 {
 		return ErrJWTInvalid
 	}
+	if strings.TrimSpace(refreshToken) == "" {
+		return ErrJWTInvalid
+	}
 	claims, err := s.parseToken(refreshToken)
 	if err != nil {
 		return err
+	}
+	if !s.isValidClaims(claims) {
+		return ErrJWTInvalid
 	}
 	if claims.TokenType != "refresh" || claims.ID == "" {
 		return ErrJWTInvalid
@@ -145,11 +158,17 @@ func (s *JWTService) ParseAccessToken(accessToken string) (Claims, error) {
 	if len(s.secret) == 0 {
 		return Claims{}, ErrJWTInvalid
 	}
+	if strings.TrimSpace(accessToken) == "" {
+		return Claims{}, ErrJWTInvalid
+	}
 	claims, err := s.parseToken(accessToken)
 	if err != nil {
 		return Claims{}, err
 	}
 	if claims.TokenType != "access" {
+		return Claims{}, ErrJWTInvalid
+	}
+	if !s.isValidClaims(claims) {
 		return Claims{}, ErrJWTInvalid
 	}
 	return claims, nil
@@ -211,4 +230,17 @@ func (s *JWTService) parseToken(tokenString string) (Claims, error) {
 		return Claims{}, ErrJWTInvalid
 	}
 	return claims, nil
+}
+
+func (s *JWTService) isValidClaims(claims Claims) bool {
+	if strings.TrimSpace(claims.UserID) == "" {
+		return false
+	}
+	if strings.TrimSpace(claims.Subject) == "" {
+		return false
+	}
+	if claims.Subject != claims.UserID {
+		return false
+	}
+	return strings.TrimSpace(claims.Issuer) == s.issuer
 }

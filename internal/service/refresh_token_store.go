@@ -59,8 +59,14 @@ func (s *memoryRefreshTokenStore) Revoke(jti string) error {
 }
 
 type redisRefreshTokenStore struct {
-	client *redis.Client
+	client redisKVClient
 	prefix string
+}
+
+type redisKVClient interface {
+	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
+	Exists(ctx context.Context, keys ...string) *redis.IntCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
 }
 
 func NewRedisRefreshTokenStore(client *redis.Client) RefreshTokenStore {
@@ -74,8 +80,12 @@ func NewRedisRefreshTokenStore(client *redis.Client) RefreshTokenStore {
 }
 
 func (s *redisRefreshTokenStore) Store(jti, userID string, ttl time.Duration) error {
-	if strings.TrimSpace(jti) == "" {
+	jti = strings.TrimSpace(jti)
+	if jti == "" {
 		return nil
+	}
+	if ttl <= 0 {
+		ttl = time.Minute
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -83,7 +93,8 @@ func (s *redisRefreshTokenStore) Store(jti, userID string, ttl time.Duration) er
 }
 
 func (s *redisRefreshTokenStore) Exists(jti string) (bool, error) {
-	if strings.TrimSpace(jti) == "" {
+	jti = strings.TrimSpace(jti)
+	if jti == "" {
 		return false, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -96,7 +107,8 @@ func (s *redisRefreshTokenStore) Exists(jti string) (bool, error) {
 }
 
 func (s *redisRefreshTokenStore) Revoke(jti string) error {
-	if strings.TrimSpace(jti) == "" {
+	jti = strings.TrimSpace(jti)
+	if jti == "" {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)

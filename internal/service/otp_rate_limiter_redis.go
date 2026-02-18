@@ -17,10 +17,14 @@ return current
 `
 
 type redisOTPRateLimiter struct {
-	client *redis.Client
+	client redisEvaler
 	window time.Duration
 	max    int
 	prefix string
+}
+
+type redisEvaler interface {
+	Eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd
 }
 
 func NewRedisOTPRateLimiter(client *redis.Client, window time.Duration, max int) OTPRateLimiter {
@@ -45,13 +49,14 @@ func (l *redisOTPRateLimiter) Allow(key string) bool {
 	if l == nil || l.client == nil {
 		return true
 	}
-	if strings.TrimSpace(key) == "" {
+	normalizedKey := strings.ToLower(strings.TrimSpace(key))
+	if normalizedKey == "" {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	redisKey := l.prefix + strings.ToLower(strings.TrimSpace(key))
+	redisKey := l.prefix + normalizedKey
 	seconds := int(l.window.Seconds())
 	if seconds <= 0 {
 		seconds = 60

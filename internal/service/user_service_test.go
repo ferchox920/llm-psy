@@ -135,7 +135,7 @@ func TestUserServiceRequestOTP_NewUser(t *testing.T) {
 	if sender.lastCode == "" {
 		t.Fatalf("expected otp code to be sent")
 	}
-	if sender.lastExpires.Before(start.Add(9*time.Minute)) {
+	if sender.lastExpires.Before(start.Add(9 * time.Minute)) {
 		t.Fatalf("expected otp expiry at least 9 minutes ahead, got %v", sender.lastExpires)
 	}
 	if sender.lastExpires.After(start.Add(11 * time.Minute)) {
@@ -192,11 +192,11 @@ func TestUserServiceVerifyOTP_Expired(t *testing.T) {
 	}
 	expiredAt := time.Now().UTC().Add(-1 * time.Minute)
 	user := domain.User{
-		ID:          "u1",
-		Email:       "user@example.com",
-		OtpCodeHash: hash,
+		ID:           "u1",
+		Email:        "user@example.com",
+		OtpCodeHash:  hash,
 		OtpExpiresAt: &expiredAt,
-		CreatedAt:   time.Now().UTC(),
+		CreatedAt:    time.Now().UTC(),
 	}
 	if err := repo.Create(context.Background(), user); err != nil {
 		t.Fatalf("create user failed: %v", err)
@@ -339,5 +339,67 @@ func TestUserServiceAuthenticate_InvalidCredentials(t *testing.T) {
 	_, err := svc.Authenticate(context.Background(), "missing@example.com", "secret123")
 	if !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("expected ErrInvalidCredentials, got %v", err)
+	}
+}
+
+func TestUserServiceCreateUser_NormalizesEmailAndHashesPassword(t *testing.T) {
+	repo := newMockUserRepo()
+	svc := NewUserService(zap.NewNop(), repo, &mockEmailSender{}, nil)
+
+	user, err := svc.CreateUser(context.Background(), CreateUserInput{
+		Email:       "  USER@Example.COM ",
+		DisplayName: "Tester",
+		Password:    "secret123",
+	})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+
+	if user.Email != "user@example.com" {
+		t.Fatalf("expected normalized email, got %q", user.Email)
+	}
+	if user.PasswordHash == "" {
+		t.Fatalf("expected password hash")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte("secret123")); err != nil {
+		t.Fatalf("expected valid hash, got %v", err)
+	}
+}
+
+func TestUserServiceAuthenticate_EmailIsCaseInsensitive(t *testing.T) {
+	repo := newMockUserRepo()
+	sender := &mockEmailSender{}
+	svc := NewUserService(zap.NewNop(), repo, sender, nil)
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("hash failed: %v", err)
+	}
+	if err := repo.Create(context.Background(), domain.User{
+		ID:           "u1",
+		Email:        "user@example.com",
+		PasswordHash: string(hash),
+		CreatedAt:    time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("create user failed: %v", err)
+	}
+
+	if _, err := svc.Authenticate(context.Background(), "USER@EXAMPLE.COM", "secret123"); err != nil {
+		t.Fatalf("expected case-insensitive login, got %v", err)
+	}
+}
+
+func TestUserServiceVerifyOTP_InvalidCodeFormat(t *testing.T) {
+	repo := newMockUserRepo()
+	sender := &mockEmailSender{}
+	svc := NewUserService(zap.NewNop(), repo, sender, nil)
+
+	if _, err := svc.RequestOTP(context.Background(), "user@example.com", ""); err != nil {
+		t.Fatalf("request otp failed: %v", err)
+	}
+
+	_, err := svc.VerifyOTP(context.Background(), "user@example.com", "12ab")
+	if !errors.Is(err, ErrOTPInvalid) {
+		t.Fatalf("expected ErrOTPInvalid for bad format, got %v", err)
 	}
 }
