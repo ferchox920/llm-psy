@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -200,6 +201,22 @@ func TestBuildNarrativeContext_InternalStateDoesNotImplyPastConversation(t *test
 	}
 	if strings.Contains(strings.ToLower(text), "intercambio anterior") || strings.Contains(strings.ToLower(text), "conflicto reciente") {
 		t.Fatalf("internal state should not imply prior conversation; got %q", text)
+	}
+}
+
+func TestBuildNarrativeContext_NotConfigured(t *testing.T) {
+	var svc *NarrativeService
+	_, err := svc.BuildNarrativeContext(context.Background(), uuid.New(), "hola")
+	if !errors.Is(err, ErrNarrativeServiceNotConfigured) {
+		t.Fatalf("expected ErrNarrativeServiceNotConfigured, got %v", err)
+	}
+}
+
+func TestBuildNarrativeContext_InvalidProfileID(t *testing.T) {
+	svc := newNarrativeServiceTestHarness(nil, nil)
+	_, err := svc.BuildNarrativeContext(context.Background(), uuid.Nil, "hola")
+	if !errors.Is(err, ErrNarrativeInvalidInput) {
+		t.Fatalf("expected ErrNarrativeInvalidInput, got %v", err)
 	}
 }
 

@@ -18,6 +18,13 @@ func (s *NarrativeService) CreateRelation(
 	name, relation, bondStatus string,
 	rel domain.RelationshipVectors,
 ) error {
+	if s == nil || s.characterRepo == nil {
+		return ErrNarrativeServiceNotConfigured
+	}
+	if profileID == uuid.Nil {
+		return ErrNarrativeInvalidInput
+	}
+
 	name = strings.TrimSpace(name)
 	relation = strings.TrimSpace(relation)
 
@@ -53,6 +60,13 @@ func (s *NarrativeService) InjectMemory(
 	importance, emotionalWeight, emotionalIntensity int,
 	emotionCategory string,
 ) error {
+	if s == nil || s.memoryRepo == nil || s.llmClient == nil {
+		return ErrNarrativeServiceNotConfigured
+	}
+	if profileID == uuid.Nil {
+		return ErrNarrativeInvalidInput
+	}
+
 	text := strings.TrimSpace(content)
 	if text == "" {
 		return nil

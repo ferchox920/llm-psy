@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -41,6 +42,11 @@ type NarrativeService struct {
 	cache         NarrativeCache
 }
 
+var (
+	ErrNarrativeServiceNotConfigured = errors.New("narrative service not configured")
+	ErrNarrativeInvalidInput         = errors.New("narrative invalid input")
+)
+
 func (s *NarrativeService) SetCache(cache NarrativeCache) { s.cache = cache }
 
 func NewNarrativeService(
@@ -56,6 +62,15 @@ func NewNarrativeService(
 }
 
 func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID uuid.UUID, userMessage string) (string, error) {
+	if s == nil || s.characterRepo == nil || s.memoryRepo == nil || s.llmClient == nil {
+		return "", ErrNarrativeServiceNotConfigured
+	}
+	if profileID == uuid.Nil {
+		return "", ErrNarrativeInvalidInput
+	}
+
+	userMessage = strings.TrimSpace(userMessage)
+
 	var sections []string
 
 	msgLower := strings.ToLower(userMessage)
@@ -75,7 +90,6 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 
 	// Negacion tiene prioridad absoluta
 	if negExp || negSem {
-		fmt.Printf("[DIAGNOSTICO] Negacion detectada, silencio total.\n")
 		return "", nil
 	}
 
@@ -128,11 +142,8 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 		searchQuery = strings.TrimSpace(unquoted)
 	}
 
-	fmt.Printf("[DIAGNOSTICO] Query Vectorial: %q\n", searchQuery)
-
 	memories := []domain.NarrativeMemory{}
 	if searchQuery == "" {
-		fmt.Printf("[DIAGNOSTICO] Subconsciente en silencio: no se ejecuta busqueda vectorial\n")
 	} else {
 		embed, err := s.llmClient.CreateEmbedding(ctx, searchQuery)
 		if err != nil {
@@ -203,8 +214,7 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 					continue
 				}
 
-				var reason string
-				use, reason, err = s.judgeMemory(ctx, userMessage, sm.Content)
+				use, _, err = s.judgeMemory(ctx, userMessage, sm.Content)
 				if err != nil {
 					continue
 				}
@@ -213,7 +223,6 @@ func (s *NarrativeService) BuildNarrativeContext(ctx context.Context, profileID 
 				} else {
 					judgeCache[jKey] = use
 				}
-				fmt.Printf("[DIAGNOSTICO] juez use=%t reason=%q\n", use, reason)
 				judgeCalls++
 			}
 
@@ -329,6 +338,9 @@ func limitMemories(memories []domain.NarrativeMemory, n int) []domain.NarrativeM
 }
 
 func (s *NarrativeService) generateEvocation(ctx context.Context, userMessage string) string {
+	if s == nil || s.llmClient == nil {
+		return ""
+	}
 	msgLower := strings.ToLower(userMessage)
 	if strings.Contains(msgLower, "no hables de") || hasNegationSemantic(msgLower) {
 		return ""
@@ -350,6 +362,9 @@ func (s *NarrativeService) generateEvocation(ctx context.Context, userMessage st
 }
 
 func (s *NarrativeService) judgeMemory(ctx context.Context, userMessage, memoryContent string) (bool, string, error) {
+	if s == nil || s.llmClient == nil {
+		return false, "", ErrNarrativeServiceNotConfigured
+	}
 	resp, err := s.llmClient.Generate(ctx, fmt.Sprintf(rerankJudgePrompt, userMessage, memoryContent))
 	if err != nil {
 		return false, "", err

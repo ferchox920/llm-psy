@@ -55,9 +55,16 @@ func hasNegationSemantic(msgLower string) bool {
 
 func detectActiveCharacters(chars []domain.Character, userMessage string) []domain.Character {
 	var out []domain.Character
-	msg := strings.ToLower(userMessage)
+	msg := strings.ToLower(strings.TrimSpace(userMessage))
+	if msg == "" {
+		return out
+	}
 	for _, c := range chars {
-		if strings.Contains(msg, strings.ToLower(c.Name)) {
+		name := strings.ToLower(strings.TrimSpace(c.Name))
+		if name == "" {
+			continue
+		}
+		if strings.Contains(msg, name) {
 			out = append(out, c)
 		}
 	}
@@ -221,7 +228,13 @@ func shouldSkipTrauma(m domain.NarrativeMemory) bool {
 func isNegativeCategory(cat string) bool {
 	c := strings.ToLower(strings.TrimSpace(cat))
 	switch c {
-	case "ira", "miedo", "asco", "tristeza", "odio", "enfado":
+	case "alegria", "alegría":
+		c = "alegria"
+	case "tristeza":
+		c = "tristeza"
+	}
+	switch c {
+	case "ira", "miedo", "asco", "tristeza", "odio", "enfado", "enojo":
 		return true
 	default:
 		return false

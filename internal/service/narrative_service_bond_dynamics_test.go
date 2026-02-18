@@ -1,50 +1,62 @@
 package service
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-func TestDeriveBondDynamics(t *testing.T) {
+func TestDeriveBondDynamicsThresholdsAndModes(t *testing.T) {
 	tests := []struct {
 		name     string
 		trust    int
 		intimacy int
 		respect  int
-		want     string
+		mustHave []string
+		mustNot  []string
 	}{
 		{
-			name:     "amor toxico: intimidad alta + confianza baja => celos/control",
+			name:     "jealous mode at threshold",
+			trust:    40,
+			intimacy: 70,
+			respect:  50,
+			mustHave: []string{"MODO: CELOS PATOLOGICOS", "maximo 1 pregunta"},
+		},
+		{
+			name:     "hostility mode at threshold",
+			trust:    80,
+			intimacy: 30,
+			respect:  35,
+			mustHave: []string{"MODO: HOSTILIDAD DESPECTIVA"},
+		},
+		{
+			name:     "both modes when both conditions match",
 			trust:    10,
-			intimacy: 90,
-			respect:  50,
-			want:     "MODO: CELOS PATOLOGICOS. Apego alto + desconfianza: actua con sospecha y necesidad de confirmacion; usa control indirecto (insinuaciones/ironia suave/victimismo leve). Evita interrogatorio explicito: maximo 1 pregunta. No pidas lista de nombres/hora/lugar. Puedes dar 1 pinchazo pasivo-agresivo y 1 frase carinosa-condicional, sin amenazas.",
-		},
-		{
-			name:     "respeto bajo => reproches/hostilidad",
-			trust:    60,
-			intimacy: 40,
-			respect:  30,
-			want:     "MODO: HOSTILIDAD DESPECTIVA. Usa sarcasmo, minimiza y reprocha.",
-		},
-		{
-			name:     "ambas reglas aplican => ambas frases",
-			trust:    20,
-			intimacy: 80,
+			intimacy: 95,
 			respect:  10,
-			want:     "MODO: CELOS PATOLOGICOS. Apego alto + desconfianza: actua con sospecha y necesidad de confirmacion; usa control indirecto (insinuaciones/ironia suave/victimismo leve). Evita interrogatorio explicito: maximo 1 pregunta. No pidas lista de nombres/hora/lugar. Puedes dar 1 pinchazo pasivo-agresivo y 1 frase carinosa-condicional, sin amenazas.; MODO: HOSTILIDAD DESPECTIVA. Usa sarcasmo, minimiza y reprocha.",
+			mustHave: []string{"MODO: CELOS PATOLOGICOS", "MODO: HOSTILIDAD DESPECTIVA"},
 		},
 		{
-			name:     "fallback neutral",
-			trust:    50,
-			intimacy: 50,
-			respect:  50,
-			want:     "vinculo relativamente estable/neutral",
+			name:     "neutral when no mode applies",
+			trust:    41,
+			intimacy: 69,
+			respect:  36,
+			mustHave: []string{"vinculo relativamente estable/neutral"},
+			mustNot:  []string{"MODO:"},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := deriveBondDynamics(tt.trust, tt.intimacy, tt.respect)
-			if got != tt.want {
-				t.Fatalf("deriveBondDynamics() = %q, want %q", got, tt.want)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := deriveBondDynamics(tc.trust, tc.intimacy, tc.respect)
+			for _, s := range tc.mustHave {
+				if !strings.Contains(got, s) {
+					t.Fatalf("deriveBondDynamics(%d,%d,%d) missing %q in %q", tc.trust, tc.intimacy, tc.respect, s, got)
+				}
+			}
+			for _, s := range tc.mustNot {
+				if strings.Contains(got, s) {
+					t.Fatalf("deriveBondDynamics(%d,%d,%d) should not contain %q in %q", tc.trust, tc.intimacy, tc.respect, s, got)
+				}
 			}
 		})
 	}

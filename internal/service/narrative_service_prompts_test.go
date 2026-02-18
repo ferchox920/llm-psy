@@ -49,3 +49,37 @@ func TestPromptsIncludeJealousyGuidance(t *testing.T) {
 		}
 	}
 }
+
+func TestPromptsContainCriticalGuardrails(t *testing.T) {
+	evocationMustHave := []string{
+		`"No hables de X"`,
+		"funeral de descuentos",
+		"Salida (Texto plano o vacio)",
+		`Mensaje del Usuario: "%s"`,
+	}
+	for _, s := range evocationMustHave {
+		if !strings.Contains(evocationPromptTemplate, s) {
+			t.Fatalf("evocationPromptTemplate missing %q", s)
+		}
+	}
+
+	if count := strings.Count(evocationFallbackPrompt, "%s"); count != 1 {
+		t.Fatalf("evocationFallbackPrompt must have exactly one %%s placeholder, got %d", count)
+	}
+
+	rerankMustHave := []string{
+		"Responde SOLO un JSON estricto",
+		"EXCEPCION CRITICA",
+		"EmotionalIntensity >= 80",
+		`Usuario: %q`,
+		`Memoria: %q`,
+	}
+	for _, s := range rerankMustHave {
+		if !strings.Contains(rerankJudgePrompt, s) {
+			t.Fatalf("rerankJudgePrompt missing %q", s)
+		}
+	}
+	if strings.Count(rerankJudgePrompt, "%q") != 2 {
+		t.Fatalf("rerankJudgePrompt must have exactly two %%q placeholders")
+	}
+}
