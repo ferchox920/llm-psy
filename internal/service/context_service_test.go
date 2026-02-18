@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -98,6 +99,39 @@ func TestBasicContextService_GetContext(t *testing.T) {
 		}
 		if ctxText != "" {
 			t.Fatalf("expected empty context, got: %q", ctxText)
+		}
+	})
+
+	t.Run("filtra mensajes vacios", func(t *testing.T) {
+		now := time.Now()
+		msgs := []domain.Message{
+			{Role: "user", Content: "   ", CreatedAt: now},
+			{Role: "clone", Content: "\n", CreatedAt: now.Add(1 * time.Minute)},
+			{Role: "user", Content: "texto valido", CreatedAt: now.Add(2 * time.Minute)},
+		}
+		repo := &mockMessageRepo{msgs: msgs}
+		svc := NewBasicContextService(repo)
+
+		ctxText, err := svc.GetContext(context.Background(), "s1")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if ctxText != "User: texto valido" {
+			t.Fatalf("expected only non-empty message, got: %q", ctxText)
+		}
+	})
+
+	t.Run("error si servicio no configurado", func(t *testing.T) {
+		var svc *BasicContextService
+		_, err := svc.GetContext(context.Background(), "s1")
+		if !errors.Is(err, ErrContextServiceNotConfigured) {
+			t.Fatalf("expected ErrContextServiceNotConfigured for nil receiver, got %v", err)
+		}
+
+		svc = NewBasicContextService(nil)
+		_, err = svc.GetContext(context.Background(), "s1")
+		if !errors.Is(err, ErrContextServiceNotConfigured) {
+			t.Fatalf("expected ErrContextServiceNotConfigured for nil repo, got %v", err)
 		}
 	})
 }

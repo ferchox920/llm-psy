@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -19,12 +20,19 @@ type BasicContextService struct {
 	messageRepo repository.MessageRepository
 }
 
+var ErrContextServiceNotConfigured = errors.New("context service not configured")
+
 func NewBasicContextService(messageRepo repository.MessageRepository) *BasicContextService {
 	return &BasicContextService{messageRepo: messageRepo}
 }
 
 func (s *BasicContextService) GetContext(ctx context.Context, sessionID string) (string, error) {
-	if strings.TrimSpace(sessionID) == "" {
+	if s == nil || s.messageRepo == nil {
+		return "", ErrContextServiceNotConfigured
+	}
+
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
 		return "", nil
 	}
 
@@ -47,11 +55,20 @@ func (s *BasicContextService) GetContext(ctx context.Context, sessionID string) 
 
 	lines := make([]string, 0, len(messages))
 	for _, m := range messages {
+		content := strings.TrimSpace(m.Content)
+		if content == "" {
+			continue
+		}
+
 		role := "User"
 		if strings.EqualFold(m.Role, "clone") {
 			role = "Clone"
 		}
-		lines = append(lines, fmt.Sprintf("%s: %s", role, m.Content))
+		lines = append(lines, fmt.Sprintf("%s: %s", role, content))
+	}
+
+	if len(lines) == 0 {
+		return "", nil
 	}
 
 	return strings.Join(lines, "\n"), nil

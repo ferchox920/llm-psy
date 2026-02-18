@@ -16,6 +16,13 @@ type LLMResponseParser struct{}
 // DefaultLLMResponseParser permite uso directo sin instanciar.
 var DefaultLLMResponseParser = LLMResponseParser{}
 
+var (
+	rePublicResponse = regexp.MustCompile(`(?is)"public_response"\s*:\s*"((?:\\.|[^"\\])*)"`)
+	reFenceStart     = regexp.MustCompile("(?is)^\\s*```(?:json)?\\s*")
+	reFenceEnd       = regexp.MustCompile("(?is)\\s*```\\s*$")
+	reInnerMonologue = regexp.MustCompile(`(?is)"inner_monologue"\s*:\s*"((?:\\.|[^"\\])*)"\s*,?`)
+)
+
 // ParseLLMResponseSafe intenta parsear la respuesta del LLM como JSON de manera robusta.
 // Regla: nunca devolvemos inner_monologue en fallback.
 func (LLMResponseParser) ParseLLMResponseSafe(raw string) (domain.LLMResponse, bool) {
@@ -79,6 +86,9 @@ func (LLMResponseParser) ParseLLMResponseSafe(raw string) (domain.LLMResponse, b
 
 // JSONUnmarshalLLMResponse delega al parseo robusto para poblar un LLMResponse.
 func (p LLMResponseParser) JSONUnmarshalLLMResponse(raw string, out *domain.LLMResponse) error {
+	if out == nil {
+		return fmt.Errorf("nil output response")
+	}
 	resp, ok := p.ParseLLMResponseSafe(raw)
 	if !ok || strings.TrimSpace(resp.PublicResponse) == "" {
 		return fmt.Errorf("could not extract public_response")
@@ -96,10 +106,8 @@ func CleanLLMJSONResponse(raw string) string {
 
 	s = strings.TrimPrefix(s, "\uFEFF")
 
-	reStart := regexp.MustCompile("(?is)^\\s*```(?:json)?\\s*")
-	reEnd := regexp.MustCompile("(?is)\\s*```\\s*$")
-	s = reStart.ReplaceAllString(s, "")
-	s = reEnd.ReplaceAllString(s, "")
+	s = reFenceStart.ReplaceAllString(s, "")
+	s = reFenceEnd.ReplaceAllString(s, "")
 	return strings.TrimSpace(s)
 }
 
@@ -137,14 +145,25 @@ func SanitizeFallbackPublicText(raw string) string {
 		}
 	}
 
-	return strings.TrimSpace(t)
+	// Last line of defense: redact any inner_monologue payload from JSON-like fallbacks.
+	redacted := reInnerMonologue.ReplaceAllString(t, "")
+	redacted = strings.TrimSpace(strings.Trim(redacted, ","))
+	if redacted == "" || strings.EqualFold(redacted, "{}") {
+		return ""
+	}
+
+	if strings.HasPrefix(redacted, "{") && strings.HasSuffix(redacted, "}") {
+		// If this is still a JSON object but has no public_response, do not echo it back.
+		return ""
+	}
+
+	return redacted
 }
 
 // ExtractPublicResponseByRegex intenta extraer el valor de "public_response" aunque el JSON esté sucio.
 // IMPORTANTE: evita leaks porque solo toma public_response.
 func ExtractPublicResponseByRegex(s string) (string, bool) {
-	re := regexp.MustCompile(`(?is)"public_response"\s*:\s*"((?:\\.|[^"\\])*)"`)
-	m := re.FindStringSubmatch(s)
+	m := rePublicResponse.FindStringSubmatch(s)
 	if len(m) < 2 {
 		return "", false
 	}

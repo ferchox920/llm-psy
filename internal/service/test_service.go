@@ -2,78 +2,113 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"clone-llm/internal/llm"
 	"go.uber.org/zap"
 )
 
-// TestService orquesta la generación de preguntas y el análisis de las respuestas para inicializar la personalidad.
+// TestService orchestrates personality test questions and trait analysis.
 type TestService struct {
-	llmClient   llm.LLMClient
-	analysisSvc *AnalysisService // Reutiliza el servicio de análisis existente
+	llmClient   llm.LLMClient // kept for compatibility with existing constructors
+	analysisSvc *AnalysisService
 	logger      *zap.Logger
+	analyzeFn   func(ctx context.Context, userID, text string) error
 }
 
+var (
+	ErrTestServiceNotConfigured = errors.New("test service not configured")
+	ErrTestServiceInvalidInput  = errors.New("test service invalid input")
+)
+
 func NewTestService(llmClient llm.LLMClient, analysisSvc *AnalysisService, logger *zap.Logger) *TestService {
-	return &TestService{
+	svc := &TestService{
 		llmClient:   llmClient,
 		analysisSvc: analysisSvc,
 		logger:      logger,
 	}
+	if analysisSvc != nil {
+		svc.analyzeFn = analysisSvc.AnalyzeAndPersist
+	}
+	return svc
 }
 
-// GenerateInitialQuestions devuelve un conjunto estático de preguntas para el test OCEAN.
+// GenerateInitialQuestions returns the static OCEAN questionnaire.
 func (s *TestService) GenerateInitialQuestions() []string {
 	return []string{
-
-		// ───────────── Apertura (Openness) ─────────────
-		"¿Qué tan de acuerdo estás con explorar ideas no convencionales o abstractas?",
-		"Cuando te enfrentas a algo totalmente nuevo, ¿sentís curiosidad o rechazo inicial?",
-		"¿Disfrutás de actividades creativas como escribir, dibujar, programar cosas experimentales o pensar teorías nuevas?",
-
-		// ───────────── Responsabilidad (Conscientiousness) ─────────────
-		"¿Con qué frecuencia planificas tu día con antelación y sigues tu horario?",
-		"Cuando tenés un objetivo importante, ¿te mantenés constante o dependés del impulso del momento?",
-		"¿Qué tan ordenado sos con tus responsabilidades, finanzas o compromisos?",
-
-		// ───────────── Extraversión (Extraversion) ─────────────
-		"¿Disfrutas de ser el centro de atención en reuniones sociales, o prefieres grupos pequeños?",
-		"Después de pasar tiempo con mucha gente, ¿te sentís con más energía o agotado?",
-		"¿Te resulta fácil iniciar conversaciones con desconocidos?",
-
-		// ───────────── Amabilidad (Agreeableness) ─────────────
-		"¿Tiendes a ser comprensivo y perdonar fácilmente los errores de otros?",
-		"Cuando hay un conflicto, ¿preferís ceder, negociar o imponer tu punto de vista?",
-		"¿Qué tan importante es para vos mantener la armonía en tus relaciones?",
-
-		// ───────────── Neuroticismo (Neuroticism) ─────────────
-		"¿Te preocupas con frecuencia por el futuro o sientes ansiedad en situaciones de incertidumbre?",
-		"Cuando algo sale mal, ¿te afecta emocionalmente por mucho tiempo o lo superás rápido?",
-		"¿Con qué frecuencia experimentás cambios intensos de ánimo?",
+		"Que tan de acuerdo estas con explorar ideas no convencionales o abstractas?",
+		"Cuando te enfrentas a algo totalmente nuevo, sentis curiosidad o rechazo inicial?",
+		"Disfrutas de actividades creativas como escribir, dibujar, programar cosas experimentales o pensar teorias nuevas?",
+		"Con que frecuencia planificas tu dia con antelacion y sigues tu horario?",
+		"Cuando tenes un objetivo importante, te mantienes constante o dependes del impulso del momento?",
+		"Que tan ordenado sos con tus responsabilidades, finanzas o compromisos?",
+		"Disfrutas de ser el centro de atencion en reuniones sociales, o prefieres grupos pequenos?",
+		"Despues de pasar tiempo con mucha gente, te sentis con mas energia o agotado?",
+		"Te resulta facil iniciar conversaciones con desconocidos?",
+		"Tiendes a ser comprensivo y perdonar facilmente los errores de otros?",
+		"Cuando hay un conflicto, preferis ceder, negociar o imponer tu punto de vista?",
+		"Que tan importante es para vos mantener la armonia en tus relaciones?",
+		"Te preocupas con frecuencia por el futuro o sientes ansiedad en situaciones de incertidumbre?",
+		"Cuando algo sale mal, te afecta emocionalmente por mucho tiempo o lo superas rapido?",
+		"Con que frecuencia experimentas cambios intensos de animo?",
 	}
 }
 
-// AnalyzeTestResponses concatena las respuestas y usa el AnalysisService para inferir rasgos.
+// AnalyzeTestResponses concatenates answers and sends them to AnalysisService.
 func (s *TestService) AnalyzeTestResponses(ctx context.Context, userID string, responses map[string]string) error {
-	var fullText strings.Builder
-	fullText.WriteString("Respuestas del Test de Personalidad del usuario. Analiza estas respuestas para inferir los rasgos Big Five (OCEAN):\n")
-
-	for question, answer := range responses {
-		fullText.WriteString(fmt.Sprintf("P: %s\nR: %s\n---\n", question, answer))
+	if s == nil || s.analyzeFn == nil {
+		return ErrTestServiceNotConfigured
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" || len(responses) == 0 {
+		return ErrTestServiceInvalidInput
 	}
 
-	analysisText := fullText.String()
+	analysisText := s.buildAnalysisText(responses)
 
-	s.logger.Info("Starting trait analysis from test responses", zap.String("user_id", userID))
+	if s.logger != nil {
+		s.logger.Info("Starting trait analysis from test responses", zap.String("user_id", userID))
+	}
 
-	// Reutiliza la lógica de inferencia del LLM ya existente
-	err := s.analysisSvc.AnalyzeAndPersist(ctx, userID, analysisText)
-	if err != nil {
+	if err := s.analyzeFn(ctx, userID, analysisText); err != nil {
 		return fmt.Errorf("failed to analyze and persist test traits: %w", err)
 	}
 
-	s.logger.Info("Successfully analyzed and persisted initial traits", zap.String("user_id", userID))
+	if s.logger != nil {
+		s.logger.Info("Successfully analyzed and persisted initial traits", zap.String("user_id", userID))
+	}
 	return nil
+}
+
+func (s *TestService) buildAnalysisText(responses map[string]string) string {
+	var fullText strings.Builder
+	fullText.WriteString("Respuestas del Test de Personalidad del usuario. Analiza estas respuestas para inferir los rasgos Big Five (OCEAN):\n")
+
+	preferredOrder := s.GenerateInitialQuestions()
+	used := make(map[string]struct{}, len(preferredOrder))
+
+	for _, question := range preferredOrder {
+		answer, ok := responses[question]
+		if !ok {
+			continue
+		}
+		fullText.WriteString(fmt.Sprintf("P: %s\nR: %s\n---\n", strings.TrimSpace(question), strings.TrimSpace(answer)))
+		used[question] = struct{}{}
+	}
+
+	var extras []string
+	for question := range responses {
+		if _, ok := used[question]; !ok {
+			extras = append(extras, question)
+		}
+	}
+	sort.Strings(extras)
+	for _, question := range extras {
+		fullText.WriteString(fmt.Sprintf("P: %s\nR: %s\n---\n", strings.TrimSpace(question), strings.TrimSpace(responses[question])))
+	}
+
+	return fullText.String()
 }

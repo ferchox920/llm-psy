@@ -32,12 +32,14 @@ func (m *mockProfileRepo) GetByUserID(ctx context.Context, userID string) (domai
 type mockTraitRepo struct {
 	upsertCount int
 	lastTrait   domain.Trait
+	allTraits   []domain.Trait
 	err         error
 }
 
 func (m *mockTraitRepo) Upsert(ctx context.Context, trait domain.Trait) error {
 	m.upsertCount++
 	m.lastTrait = trait
+	m.allTraits = append(m.allTraits, trait)
 	return m.err
 }
 
@@ -134,5 +136,60 @@ func TestAnalysisServiceCleansMarkdown(t *testing.T) {
 
 	if traitRepo.lastTrait.CreatedAt.After(time.Now().UTC().Add(1 * time.Minute)) {
 		t.Fatalf("unexpected created_at timestamp")
+	}
+}
+
+func TestAnalysisServiceSkipsInvalidTraitsAndClampsValues(t *testing.T) {
+	llmClient := &llm.MockClient{
+		Response: `{
+			"traits": [
+				{"trait": "unknown_trait", "value": 85, "confidence": 0.9},
+				{"trait": "neuroticism", "value": 140, "confidence": 1.4},
+				{"trait": "agreeableness", "value": -7, "confidence": -0.3}
+			]
+		}`,
+	}
+	profileRepo := &mockProfileRepo{profile: domain.CloneProfile{ID: "profile-3"}}
+	traitRepo := &mockTraitRepo{}
+
+	svc := NewAnalysisService(llmClient, traitRepo, profileRepo, zap.NewNop())
+	if err := svc.AnalyzeAndPersist(context.Background(), "user-3", "texto"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if traitRepo.upsertCount != 2 {
+		t.Fatalf("expected 2 valid traits persisted, got %d", traitRepo.upsertCount)
+	}
+
+	if traitRepo.allTraits[0].Trait != "neuroticism" || traitRepo.allTraits[0].Value != 100 {
+		t.Fatalf("expected neuroticism value clamped to 100, got trait=%s value=%d", traitRepo.allTraits[0].Trait, traitRepo.allTraits[0].Value)
+	}
+	if traitRepo.allTraits[0].Confidence == nil || *traitRepo.allTraits[0].Confidence != 1 {
+		t.Fatalf("expected confidence clamped to 1, got %v", traitRepo.allTraits[0].Confidence)
+	}
+
+	if traitRepo.allTraits[1].Trait != "agreeableness" || traitRepo.allTraits[1].Value != 0 {
+		t.Fatalf("expected agreeableness value clamped to 0, got trait=%s value=%d", traitRepo.allTraits[1].Trait, traitRepo.allTraits[1].Value)
+	}
+	if traitRepo.allTraits[1].Confidence == nil || *traitRepo.allTraits[1].Confidence != 0 {
+		t.Fatalf("expected confidence clamped to 0, got %v", traitRepo.allTraits[1].Confidence)
+	}
+}
+
+func TestAnalysisServiceParsesWrappedJSONObject(t *testing.T) {
+	llmClient := &llm.MockClient{
+		Response: `Analisis:
+{"traits":[{"trait":"openness","value":72,"confidence":0.6}],"emotional_intensity":18,"emotion_category":"NEUTRAL"}
+fin`,
+	}
+	profileRepo := &mockProfileRepo{profile: domain.CloneProfile{ID: "profile-4"}}
+	traitRepo := &mockTraitRepo{}
+
+	svc := NewAnalysisService(llmClient, traitRepo, profileRepo, zap.NewNop())
+	if err := svc.AnalyzeAndPersist(context.Background(), "user-4", "texto envuelto"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if traitRepo.upsertCount != 1 {
+		t.Fatalf("expected upsert called once, got %d", traitRepo.upsertCount)
 	}
 }

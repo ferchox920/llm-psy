@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -23,6 +24,14 @@ type AnalysisService struct {
 	logger      *zap.Logger
 }
 
+var allowedBigFiveTraits = map[string]struct{}{
+	"openness":          {},
+	"conscientiousness": {},
+	"extraversion":      {},
+	"agreeableness":     {},
+	"neuroticism":       {},
+}
+
 func NewAnalysisService(
 	llmClient llm.LLMClient,
 	traitRepo repository.TraitRepository,
@@ -39,6 +48,10 @@ func NewAnalysisService(
 
 // AnalyzeAndPersist guarda los rasgos inferidos y devuelve error si falla.
 func (s *AnalysisService) AnalyzeAndPersist(ctx context.Context, userID, text string) error {
+	if s.profileRepo == nil || s.traitRepo == nil || s.llmClient == nil {
+		return errors.New("analysis service not configured")
+	}
+
 	profile, err := s.profileRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("get profile for user %s: %w", userID, err)
@@ -51,19 +64,49 @@ func (s *AnalysisService) AnalyzeAndPersist(ctx context.Context, userID, text st
 
 	now := time.Now().UTC()
 	for _, t := range parsed.Traits {
+		normalizedTrait := strings.ToLower(strings.TrimSpace(t.Trait))
+		if _, ok := allowedBigFiveTraits[normalizedTrait]; !ok {
+			if s.logger != nil {
+				s.logger.Warn("ignoring unsupported trait", zap.String("trait", t.Trait), zap.String("profile_id", profile.ID))
+			}
+			continue
+		}
+
+		value := t.Value
+		if value < 0 {
+			value = 0
+		}
+		if value > 100 {
+			value = 100
+		}
+
+		confidence := t.Confidence
+		if confidence != nil {
+			c := *confidence
+			if c < 0 {
+				c = 0
+			}
+			if c > 1 {
+				c = 1
+			}
+			confidence = &c
+		}
+
 		trait := domain.Trait{
 			ID:         uuid.NewString(),
 			ProfileID:  profile.ID,
 			Category:   domain.TraitCategoryBigFive,
-			Trait:      strings.ToLower(t.Trait),
-			Value:      t.Value,
-			Confidence: t.Confidence,
+			Trait:      normalizedTrait,
+			Value:      value,
+			Confidence: confidence,
 			CreatedAt:  now,
 			UpdatedAt:  now,
 		}
 
 		if err := s.traitRepo.Upsert(ctx, trait); err != nil {
-			s.logger.Warn("trait upsert failed", zap.Error(err), zap.String("profile_id", profile.ID), zap.String("trait", trait.Trait))
+			if s.logger != nil {
+				s.logger.Warn("trait upsert failed", zap.Error(err), zap.String("profile_id", profile.ID), zap.String("trait", trait.Trait))
+			}
 			return fmt.Errorf("trait upsert: %w", err)
 		}
 	}
@@ -134,6 +177,9 @@ Guia de emotional_intensity (1-100):
 	}
 
 	cleanedResp := cleanLLMJSONResponse(rawResp)
+	if obj := extractFirstJSONObject(cleanedResp); obj != "" {
+		cleanedResp = obj
+	}
 
 	var parsed AnalysisResponse
 	if err := json.Unmarshal([]byte(cleanedResp), &parsed); err != nil {
