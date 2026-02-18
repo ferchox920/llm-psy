@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -28,6 +29,11 @@ type CloneService struct {
 	responseParser   LLMResponseParser
 	reactionEngine   ReactionEngine
 }
+
+var (
+	ErrCloneServiceNotConfigured = errors.New("clone service not configured")
+	ErrCloneInvalidInput         = errors.New("clone invalid input")
+)
 
 func NewCloneService(
 	llmClient llm.LLMClient,
@@ -57,12 +63,23 @@ func NewCloneService(
 
 // Chat genera una respuesta del clon basada en perfil, rasgos y contexto, la persiste y devuelve el mensaje completo.
 func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage string) (domain.Message, *domain.InteractionDebug, error) {
+	if s == nil || s.llmClient == nil || s.messageRepo == nil || s.profileRepo == nil || s.traitRepo == nil || s.contextService == nil {
+		return domain.Message{}, nil, ErrCloneServiceNotConfigured
+	}
+
+	userID = strings.TrimSpace(userID)
+	sessionID = strings.TrimSpace(sessionID)
+	userMessage = strings.TrimSpace(userMessage)
+	if userID == "" || userMessage == "" {
+		return domain.Message{}, nil, ErrCloneInvalidInput
+	}
+
 	profile, err := s.profileRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return domain.Message{}, nil, fmt.Errorf("get profile: %w", err)
 	}
 
-	analysisSummary := AnalysisResult{Input: strings.TrimSpace(userMessage)}
+	analysisSummary := AnalysisResult{Input: userMessage}
 	profileUUID, parseErr := uuid.Parse(profile.ID)
 
 	traits, err := s.traitRepo.FindByProfileID(ctx, profile.ID)
@@ -201,6 +218,9 @@ func (s *CloneService) Chat(ctx context.Context, userID, sessionID, userMessage 
 	}
 
 	response := strings.TrimSpace(llmResp.PublicResponse)
+	if response == "" {
+		response = "No tengo una respuesta en este momento."
+	}
 
 	cloneMessage := domain.Message{
 		ID:        uuid.NewString(),

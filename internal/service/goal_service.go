@@ -6,7 +6,29 @@ import (
 	"clone-llm/internal/domain"
 )
 
-// AnalysisResult es una vista simplificada de lo que el analisis produce para decidir metas.
+const (
+	toxicTrustThreshold    = 45
+	toxicIntimacyThreshold = 60
+)
+
+var toxicTriggerKeywords = []string{
+	"amigo",
+	"amigos",
+	"salir",
+	"cena",
+	"noche",
+	"fiesta",
+	"bar",
+	"conocer",
+	"nuevos",
+	"trabajo",
+	"no me esperes",
+	"me quedo",
+	"visto",
+	"ocupado",
+}
+
+// AnalysisResult is a reduced view used to choose conversation goals.
 type AnalysisResult struct {
 	Sentiment    string
 	Curiosity    int
@@ -15,12 +37,10 @@ type AnalysisResult struct {
 	IsTrivial    bool
 }
 
-// DetermineNextGoal devuelve la meta mas adecuada para el turno actual segun heuristica.
+// DetermineNextGoal returns a legacy heuristic goal selection.
 func DetermineNextGoal(profile domain.CloneProfile, analysis AnalysisResult) domain.Goal {
-	// 1. Paranoia por baja confianza y alto neuroticismo
 	if profile.CurrentGoal == nil && profile.Big5.Neuroticism > 60 {
-		rel := analysis.Relationship
-		if rel.Trust < 20 {
+		if analysis.Relationship.Trust < 20 {
 			return domain.Goal{
 				ID:          "",
 				Description: "Interrogar al usuario sobre sus intenciones reales.",
@@ -30,7 +50,6 @@ func DetermineNextGoal(profile domain.CloneProfile, analysis AnalysisResult) dom
 		}
 	}
 
-	// 2. Intimidad alta y sentimiento positivo
 	if rel := analysis.Relationship; rel.Intimacy > 70 && analysis.Sentiment == "Positive" {
 		return domain.Goal{
 			ID:          "",
@@ -40,56 +59,37 @@ func DetermineNextGoal(profile domain.CloneProfile, analysis AnalysisResult) dom
 		}
 	}
 
-	// 3. Curiosidad alta
 	if analysis.Curiosity > 80 {
 		return domain.Goal{
 			ID:          "",
-			Description: "Hacer una pregunta específica sobre un dato mencionado anteriormente.",
+			Description: "Hacer una pregunta especifica sobre un dato mencionado anteriormente.",
 			Status:      "active",
 			Trigger:     "curiosity_high",
 		}
 	}
 
-	// 4. Fallback
 	return domain.Goal{
 		ID:          "",
-		Description: "Mantener la conversación fluyendo naturalmente.",
+		Description: "Mantener la conversacion fluyendo naturalmente.",
 		Status:      "active",
 		Trigger:     "default",
 	}
 }
 
-// DetermineGoal aplica heuristica de agencia contextual.
+// DetermineGoal applies contextual agency rules for the current turn.
 func DetermineGoal(profile domain.CloneProfile, analysis AnalysisResult) domain.Goal {
 	rel := analysis.Relationship
-	lowerInput := strings.ToLower(analysis.Input)
+	lowerInput := strings.ToLower(strings.TrimSpace(analysis.Input))
 
-	// 1. Detectar amenaza relacional (Amor toxico)
-	if rel.Trust < 45 && rel.Intimacy > 60 {
-		if strings.Contains(lowerInput, "amigo") ||
-			strings.Contains(lowerInput, "amigos") ||
-			strings.Contains(lowerInput, "salir") ||
-			strings.Contains(lowerInput, "cena") ||
-			strings.Contains(lowerInput, "noche") ||
-			strings.Contains(lowerInput, "fiesta") ||
-			strings.Contains(lowerInput, "bar") ||
-			strings.Contains(lowerInput, "conocer") ||
-			strings.Contains(lowerInput, "nuevos") ||
-			strings.Contains(lowerInput, "trabajo") ||
-			strings.Contains(lowerInput, "no me esperes") ||
-			strings.Contains(lowerInput, "me quedo") ||
-			strings.Contains(lowerInput, "visto") ||
-			strings.Contains(lowerInput, "ocupado") {
-			return domain.Goal{
-				ID:          "",
-				Description: "OBJETIVO: GENERAR INSEGURIDAD Y CONTROL (tono frio, pasivo-agresivo, sin insultos). \n- Muestra celos y recelo; no seas comprensivo ni efusivo. \n- Insinua que prefiere a otros y pide detalles exactos de con quien va y a donde. \n- Usa ironia hiriente y dudas veladas sobre su fidelidad, sin gritar ni amenazar. \n- Haz que sienta culpa por irse o dejarte solo, sin prohibirle abiertamente.",
-				Status:      "active",
-				Trigger:     "toxic_love_low_trust_high_intimacy",
-			}
+	if rel.Trust < toxicTrustThreshold && rel.Intimacy > toxicIntimacyThreshold && containsAnyGoalKeyword(lowerInput, toxicTriggerKeywords) {
+		return domain.Goal{
+			ID:          "",
+			Description: "OBJETIVO: GENERAR INSEGURIDAD Y CONTROL (tono frio, pasivo-agresivo, sin insultos). \n- Muestra celos y recelo; no seas comprensivo ni efusivo. \n- Insinua que prefiere a otros y pide detalles exactos de con quien va y a donde. \n- Usa ironia hiriente y dudas veladas sobre su fidelidad, sin gritar ni amenazar. \n- Haz que sienta culpa por irse o dejarte solo, sin prohibirle abiertamente.",
+			Status:      "active",
+			Trigger:     "toxic_love_low_trust_high_intimacy",
 		}
 	}
 
-	// 2. Aburrimiento/trivialidad
 	if analysis.IsTrivial && profile.Big5.Neuroticism < 60 {
 		return domain.Goal{
 			ID:          "",
@@ -99,11 +99,19 @@ func DetermineGoal(profile domain.CloneProfile, analysis AnalysisResult) domain.
 		}
 	}
 
-	// 3. Default
 	return domain.Goal{
 		ID:          "",
-		Description: "Mantener la conversación fluida.",
+		Description: "Mantener la conversacion fluida.",
 		Status:      "active",
 		Trigger:     "default",
 	}
+}
+
+func containsAnyGoalKeyword(input string, keywords []string) bool {
+	for _, kw := range keywords {
+		if strings.Contains(input, kw) {
+			return true
+		}
+	}
+	return false
 }

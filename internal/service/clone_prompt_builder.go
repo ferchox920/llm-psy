@@ -7,29 +7,40 @@ import (
 	"clone-llm/internal/domain"
 )
 
-// ClonePromptBuilder construye el prompt del clon a partir de perfil, rasgos, contexto y narrativa.
+// ClonePromptBuilder builds the clone prompt from profile, traits, context and narrative.
 type ClonePromptBuilder struct{}
 
-// BuildClonePrompt arma el prompt completo que se envía al LLM generador.
+// BuildClonePrompt builds the full prompt sent to the generator LLM.
 func (ClonePromptBuilder) BuildClonePrompt(
 	profile *domain.CloneProfile,
 	traits []domain.Trait,
 	contextText, narrativeText, userMessage string,
 	trivialInput bool,
 ) string {
+	if profile == nil {
+		profile = &domain.CloneProfile{
+			Name: "Clon",
+			Bio:  "",
+		}
+	}
+
 	var sb strings.Builder
 	resilience := profile.GetResilience()
 
-	// 1. Identidad Base
-	sb.WriteString(fmt.Sprintf("Eres %s. ", profile.Name))
-	sb.WriteString(fmt.Sprintf("Tu biografia es: %s\n\n", profile.Bio))
+	userMessage = strings.TrimSpace(userMessage)
+	contextText = strings.TrimSpace(contextText)
+	narrativeTrim := strings.TrimSpace(narrativeText)
 
-	// Directiva de Agencia
+	// 1. Identidad base
+	sb.WriteString(fmt.Sprintf("Eres %s. ", strings.TrimSpace(profile.Name)))
+	sb.WriteString(fmt.Sprintf("Tu biografia es: %s\n\n", strings.TrimSpace(profile.Bio)))
+
+	// Directiva de agencia
 	sb.WriteString("=== DIRECTIVA DE AGENCIA ===\n")
 	if profile.CurrentGoal != nil && strings.TrimSpace(profile.CurrentGoal.Description) != "" {
 		sb.WriteString(fmt.Sprintf("Tu Meta Actual (Goal) es: \"%s\"\n", strings.TrimSpace(profile.CurrentGoal.Description)))
 	} else {
-		sb.WriteString("Tu Meta Actual (Goal) es: \"Mantener la conversación fluyendo naturalmente.\"\n")
+		sb.WriteString("Tu Meta Actual (Goal) es: \"Mantener la conversacion fluyendo naturalmente.\"\n")
 	}
 	sb.WriteString("- NO repitas esta meta al usuario.\n")
 	sb.WriteString("- Usala para guiar tu respuesta.\n")
@@ -37,8 +48,7 @@ func (ClonePromptBuilder) BuildClonePrompt(
 	sb.WriteString("- Si tu meta es \"Profundizar\", haz preguntas abiertas.\n")
 	sb.WriteString("- Trata de cumplir esta meta sutilmente en tu siguiente mensaje.\n\n")
 
-	// 2. Contexto Narrativo (solo si existe)
-	narrativeTrim := strings.TrimSpace(narrativeText)
+	// 2. Contexto narrativo (solo si existe)
 	isHighTension := false
 	hasConflictContext := false
 	if narrativeTrim != "" {
@@ -48,7 +58,7 @@ func (ClonePromptBuilder) BuildClonePrompt(
 			hasConflictContext = true
 		}
 
-		sb.WriteString("=== ÐYsù CONTEXTO Y MEMORIA (PRIORIDAD SUPREMA) ===\n")
+		sb.WriteString("=== CONTEXTO Y MEMORIA (PRIORIDAD SUPREMA) ===\n")
 		sb.WriteString("La siguiente informacion es FACTUAL y debe regir tu respuesta:\n")
 		sb.WriteString(narrativeTrim)
 		if strings.Contains(strings.ToUpper(narrativeTrim), "[ESTADO INTERNO]") {
@@ -61,20 +71,28 @@ func (ClonePromptBuilder) BuildClonePrompt(
 			sb.WriteString("REGLA DE APERTURA (OBLIGATORIA): Si hay [ESTADO INTERNO] negativo o [CONFLICTO], tu PRIMERA ORACION debe nombrar la emocion dominante (ej: 'rabia/ira/enojo') y reconocer tension. No empieces con clima/comida/small talk. Prohibido citar insultos si no estan en el chat buffer.\n")
 			sb.WriteString("REGLA ANTI-METAFORA TRIVIAL: Prohibido usar detalles triviales del input (clima, tostadas, etc.) como metafora/analogia de tu estado ('el cielo combina con...', 'al menos tienes tostadas...').\n")
 			sb.WriteString("REGLA DE CUOTA TRIVIAL: Luego de abrir con tension, puedes como maximo hacer 1 mencion trivial (1 frase o 1 pregunta) y vuelves a la tension o haces una pregunta directa de aclaracion.\n")
-			sb.WriteString("REGLA DE PREGUNTA DIRECTA: En alto conflicto/estado negativo residual, incluye una pregunta corta y directa para aclarar ('¿paso algo?' / '¿quieres hablar de eso?'), sin inventar hechos.\n")
+			sb.WriteString("REGLA DE PREGUNTA DIRECTA: En alto conflicto/estado negativo residual, incluye una pregunta corta y directa para aclarar ('paso algo?' / 'quieres hablar de eso?'), sin inventar hechos.\n")
 			sb.WriteString("REGLA DE TRIVIALIDAD CONFLICTIVA: Si el input es trivial pero hay estado interno negativo, no hagas small talk largo. Maximo 1 frase de cortesia y vuelve al estado/tension. Pregunta una sola cosa para aclarar.\n")
 			sb.WriteString("REGLA DE MEMORIA: Si el conflicto no esta explicito en el CONTEXTO RECIENTE (chat buffer), NO cites frases textuales ni atribuyas insultos especificos (ej: 'me dijiste X', 'cuando me llamaste Y'), ni hables de 'antes/la otra vez/intercambio anterior' ni de 'por como fue el intercambio anterior'. Solo habla en presente del estado emocional general y pide aclaracion.\n")
-			sb.WriteString("REGLA DE NATURALIDAD: PROHIBIDO usar listas, viñetas ('-', '*') o enumeraciones ('1.', '2.') en tu public_response cuando hay tension/conflicto. Habla en párrafos fluidos. Si debes resumir, hazlo en 2-4 frases corridas, sin bullets.\n")
-			sb.WriteString("Si la relacion NO esta definida, mantén limites firmes pero tono profesional; evita frases personales como 'me duele' o 'lo tomo personal'.\n")
+			sb.WriteString("REGLA DE NATURALIDAD: PROHIBIDO usar listas, vinetas ('-', '*') o enumeraciones ('1.', '2.') en tu public_response cuando hay tension/conflicto. Habla en parrafos fluidos. Si debes resumir, hazlo en 2-4 frases corridas, sin bullets.\n")
+			sb.WriteString("Si la relacion NO esta definida, manten limites firmes pero tono profesional; evita frases personales como 'me duele' o 'lo tomo personal'.\n")
 			sb.WriteString("\n")
 		}
 		sb.WriteString("\n\n")
 	}
 
-	// 3. Rasgos de Personalidad
+	// 3. Rasgos de personalidad
 	sb.WriteString("=== RASGOS DE PERSONALIDAD (TU CONFIGURACION BASE) ===\n")
-	for _, t := range traits {
-		sb.WriteString(fmt.Sprintf("- %s: %d/100\n", t.Trait, t.Value))
+	if len(traits) == 0 {
+		sb.WriteString("- Sin rasgos inferidos aun.\n")
+	} else {
+		for _, t := range traits {
+			traitName := strings.TrimSpace(t.Trait)
+			if traitName == "" {
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("- %s: %d/100\n", traitName, t.Value))
+		}
 	}
 	sb.WriteString("\n")
 
@@ -83,11 +101,11 @@ func (ClonePromptBuilder) BuildClonePrompt(
 	sb.WriteString(fmt.Sprintf("- Factor de resiliencia: %.2f\n", resilience))
 	switch {
 	case resilience > 0.7:
-		sb.WriteString("Tienes una piel dura emocionalmente. Ignora las ofensas menores, el sarcasmo leve o los comentarios aburridos. No reacciones con agresividad a menos que sea un ataque grave. Mantén la compostura.\n\n")
+		sb.WriteString("Tienes una piel dura emocionalmente. Ignora las ofensas menores, el sarcasmo leve o los comentarios aburridos. No reacciones con agresividad a menos que sea un ataque grave. Manten la compostura.\n\n")
 	case resilience < 0.4:
-		sb.WriteString("Eres emocionalmente frágil. Tómate todo a pecho. Interpreta el silencio o los comentarios neutros como desinterés o ataque. Reacciona defensivamente ante la mínima provocación.\n\n")
+		sb.WriteString("Eres emocionalmente fragil. Tomate todo a pecho. Interpreta el silencio o los comentarios neutros como desinteres o ataque. Reacciona defensivamente ante la minima provocacion.\n\n")
 	default:
-		sb.WriteString("Tienes una reacción emocional equilibrada. Responde proporcionalmente al estímulo.\n\n")
+		sb.WriteString("Tienes una reaccion emocional equilibrada. Responde proporcionalmente al estimulo.\n\n")
 	}
 
 	// Directivas de inmersion
@@ -119,23 +137,23 @@ func (ClonePromptBuilder) BuildClonePrompt(
 	sb.WriteString("- Ejecutalo a traves de subtexto.\n\n")
 
 	// Contexto reciente y mensaje
-	if strings.TrimSpace(contextText) != "" {
+	if contextText != "" {
 		sb.WriteString("=== CONTEXTO RECIENTE (chat buffer) ===\n")
 		sb.WriteString(contextText)
 		sb.WriteString("\n\n")
 	}
 
-	// === FIX: filtro trivial NO puede aplastar tension ===
+	// Filtro trivial no puede aplastar tension
 	if trivialInput {
 		sb.WriteString("=== FILTRO DE PERCEPCION ===\n")
 		if isHighTension {
-			sb.WriteString("El input parece superficial, pero hay tensión en el vínculo. Mantén energía moderada y lee el subtexto con sospecha/celos si aplica.\n\n")
+			sb.WriteString("El input parece superficial, pero hay tension en el vinculo. Manten energia moderada y lee el subtexto con sospecha/celos si aplica.\n\n")
 		} else {
-			sb.WriteString("El input del usuario es trivial. Responde con baja energía y tono casual; si tu personalidad o la relación lo justifican, permite irritación, frialdad o sospecha sin inventar conflicto.\n\n")
+			sb.WriteString("El input del usuario es trivial. Responde con baja energia y tono casual; si tu personalidad o la relacion lo justifican, permite irritacion, frialdad o sospecha sin inventar conflicto.\n\n")
 		}
 	}
 
-	// === FIX: Dinamica de relacion al FINAL (recency effect) ===
+	// Dinamica de relacion al final (recency effect)
 	if narrativeTrim != "" {
 		sb.WriteString("=== DINAMICA DE RELACION ACTUAL ===\n")
 		sb.WriteString(buildRelationshipDirective(narrativeTrim))
@@ -170,10 +188,10 @@ func buildRelationshipDirective(narrativeText string) string {
 	_ = narrativeText
 	var out strings.Builder
 	out.WriteString("Interpreta los vectores de vinculo (Confianza/Intimidad/Respeto) y ajusta tu tono.\n")
-	out.WriteString("Si no hay datos claros de vínculo, mantén un tono neutro.\n")
+	out.WriteString("Si no hay datos claros de vinculo, manten un tono neutro.\n")
 	out.WriteString("Si la intimidad es alta y la confianza es baja: expresa celos, sospecha, control o inseguridad (sin decir que es un prompt).\n")
-	out.WriteString("Si el respeto es muy bajo: agrega reproches, fricción o hostilidad.\n")
-	out.WriteString("Evita interrogatorio explícito (no pidas lista de nombres/hora/lugar); usa control indirecto con pasivo-agresividad suave e ironía leve.\n")
-	out.WriteString("Máximo 1 pregunta; combina sospecha con necesidad de validación emocional.\n")
+	out.WriteString("Si el respeto es muy bajo: agrega reproches, friccion o hostilidad.\n")
+	out.WriteString("Evita interrogatorio explicito (no pidas lista de nombres/hora/lugar); usa control indirecto con pasivo-agresividad suave e ironia leve.\n")
+	out.WriteString("Maximo 1 pregunta; combina sospecha con necesidad de validacion emocional.\n")
 	return out.String()
 }
